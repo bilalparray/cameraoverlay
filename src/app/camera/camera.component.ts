@@ -101,9 +101,44 @@ export class CameraComponent implements OnInit, AfterViewInit {
           );
           return;
         }
-        // Log the raw data to verify capture
-        this.image = base64Picture;
-        console.log(this.image);
+        // Create an image element with the captured data
+        const img = new Image();
+        img.onload = () => {
+          // Get the bounding rectangle of the draggable square relative to the viewport
+          const rect =
+            this.draggableSquare.nativeElement.getBoundingClientRect();
+          // Create an offscreen canvas with the dimensions of the square
+          const canvas = document.createElement('canvas');
+          canvas.width = rect.width;
+          canvas.height = rect.height;
+          const context = canvas.getContext('2d');
+          if (context) {
+            /* 
+              Draw the captured image onto the canvas.
+              Because the CameraPreview capture dimensions are set to window.innerWidth/Height,
+              we assume the captured image aligns with the viewport.
+              The rect values (left, top, width, height) define the crop region.
+            */
+            context.drawImage(
+              img,
+              rect.left, // x coordinate in the source image
+              rect.top, // y coordinate in the source image
+              rect.width, // width of the crop region
+              rect.height, // height of the crop region
+              0, // x coordinate on the canvas
+              0, // y coordinate on the canvas
+              rect.width, // width on the canvas
+              rect.height // height on the canvas
+            );
+            // Convert the canvas content to a base64-encoded PNG image
+            const croppedBase64 = canvas.toDataURL('image/png').split(',')[1];
+            // Update the component's image property to display the cropped image
+            this.image = croppedBase64;
+          } else {
+            console.error('Canvas context not available');
+          }
+        };
+        img.src = 'data:image/png;base64,' + base64Picture;
       }
     );
   }
