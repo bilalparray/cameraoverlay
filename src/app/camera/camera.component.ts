@@ -100,7 +100,7 @@ interface Position {
       }
       .draggable-square {
         position: absolute;
-        border: 2px dashed red;
+        border: 2px dashed #fff;
         touch-action: none;
       }
       .cropped-image {
@@ -142,20 +142,17 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   ngOnInit(): void {
     if (typeof window !== 'undefined') {
-      // Set the initial position of the draggable square to the center of the viewport.
+      // Initialize the square in the center of the viewport.
       this.squarePos = {
         left: window.innerWidth / 2 - this.boxSize / 2,
         top: window.innerHeight / 2 - this.boxSize / 2,
       };
     } else {
-      // Provide default values for non-browser contexts.
       this.squarePos = { left: 100, top: 100 };
     }
   }
 
-  ngAfterViewInit(): void {
-    // No window reference here, so safe.
-  }
+  ngAfterViewInit(): void {}
 
   goToCamera(): void {
     this.currentPage = 'camera';
@@ -178,9 +175,11 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     this.dragging = true;
+
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
-    this.dragStartX = evt.pageX;
-    this.dragStartY = evt.pageY;
+    // Use clientX/clientY for consistency on mobile.
+    this.dragStartX = evt.clientX;
+    this.dragStartY = evt.clientY;
     this.initialSquareLeft = this.squarePos.left;
     this.initialSquareTop = this.squarePos.top;
 
@@ -194,12 +193,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     if (!this.dragging) return;
     event.preventDefault();
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
-    const deltaX = evt.pageX - this.dragStartX;
-    const deltaY = evt.pageY - this.dragStartY;
-    this.squarePos = {
-      left: this.initialSquareLeft + deltaX,
-      top: this.initialSquareTop + deltaY,
-    };
+    const deltaX = evt.clientX - this.dragStartX;
+    const deltaY = evt.clientY - this.dragStartY;
+    // Use NgZone to update the square position so that Angular detects changes.
+    this.ngZone.run(() => {
+      this.squarePos = {
+        left: this.initialSquareLeft + deltaX,
+        top: this.initialSquareTop + deltaY,
+      };
+    });
   };
 
   stopDrag = (): void => {
