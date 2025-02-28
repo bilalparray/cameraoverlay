@@ -17,13 +17,13 @@ declare var CameraPreview: any;
   imports: [CommonModule],
   template: `
     <!-- Home / Start Screen -->
-    <div *ngIf="currentPage === 'home'" class="page home-page">
+    <div *ngIf="currentPage === 'home'" class="page">
       <h1>Welcome to Camera Cropper</h1>
       <button class="action-btn" (click)="goToCamera()">Start Camera</button>
     </div>
 
     <!-- Camera Preview Screen -->
-    <div *ngIf="currentPage === 'camera'" class="page camera-page">
+    <div *ngIf="currentPage === 'camera'" class="page">
       <div class="container">
         <!-- Overlay box for cropping -->
         <div #draggableSquare class="draggable-square"></div>
@@ -32,7 +32,7 @@ declare var CameraPreview: any;
     </div>
 
     <!-- Cropped Image Result Screen -->
-    <div *ngIf="currentPage === 'result'" class="page result-page">
+    <div *ngIf="currentPage === 'result'" class="page">
       <div class="cropped-image">
         <h3>Cropped Image:</h3>
         <img [src]="'data:image/png;base64,' + image" alt="Cropped Image" />
@@ -44,7 +44,6 @@ declare var CameraPreview: any;
   `,
   styles: [
     `
-      /* Remove background color from pages */
       .page {
         position: relative;
         width: 100%;
@@ -56,20 +55,26 @@ declare var CameraPreview: any;
         background: transparent;
         color: #000;
       }
-      h1 {
-        text-align: center;
-      }
-      .action-btn {
+      .action-btn,
+      .capture-btn {
         padding: 10px 20px;
         font-size: 18px;
-        color: #fff;
-        background: #0066cc;
         border: none;
         border-radius: 5px;
         cursor: pointer;
       }
-
-      /* Full viewport container for camera preview */
+      .action-btn {
+        color: #fff;
+        background: #0066cc;
+      }
+      .capture-btn {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #fff;
+        background: red;
+      }
       .container {
         position: relative;
         width: 100%;
@@ -77,33 +82,15 @@ declare var CameraPreview: any;
         overflow: hidden;
         background: transparent;
       }
-
-      /* Overlay square defining the crop area */
+      /* The draggable square overlay for cropping */
       .draggable-square {
         position: absolute;
-        border: 2px dashed red;
+        border: 2px dashed #fff;
         width: 200px;
         height: 200px;
         top: calc(50% - 100px);
         left: calc(50% - 100px);
       }
-
-      /* Capture button styling */
-      .capture-btn {
-        position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 10px 20px;
-        font-size: 18px;
-        color: #fff;
-        background: red;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-      }
-
-      /* Cropped image display styling */
       .cropped-image {
         background: transparent;
         padding: 10px;
@@ -122,7 +109,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   @ViewChild('draggableSquare', { static: false })
   draggableSquare!: ElementRef<HTMLDivElement>;
 
-  // Possible states: 'home', 'camera', 'result'
+  // Manage the current view: 'home', 'camera', or 'result'
   currentPage: 'home' | 'camera' | 'result' = 'home';
 
   // Holds the cropped image (base64 string without the data URI prefix)
@@ -130,16 +117,14 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   constructor(private ngZone: NgZone) {}
 
-  ngOnInit(): void {
-    // Additional initialization if needed.
-  }
+  ngOnInit(): void {}
 
   ngAfterViewInit(): void {
-    // The camera preview starts only when "Start Camera" is clicked.
+    // The camera preview is started only when the user clicks "Start Camera".
   }
 
   /**
-   * Switch to the camera view and start the camera preview.
+   * Switch to the camera view and start the preview.
    */
   goToCamera(): void {
     this.currentPage = 'camera';
@@ -150,7 +135,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
         width: window.innerWidth,
         height: window.innerHeight,
         camera: 'rear',
-        toBack: true, // Renders the preview behind the webview.
+        toBack: true, // Render preview behind the webview.
       },
       () => console.log('Camera preview started'),
       (error: any) => console.error('Camera error:', error)
@@ -158,53 +143,40 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   }
 
   /**
-   * Captures an image, crops it based on the overlay square's position,
-   * and shows the cropped result.
+   * Captures an image and then crops it based on the overlay box's dimensions.
    */
   captureAndCrop(): void {
-    console.log('captureAndCrop called');
     CameraPreview.takePicture(
       { width: window.innerWidth, height: window.innerHeight, quality: 85 },
       (base64: any) => {
-        console.log('Picture taken');
-        // Handle array response if necessary.
         if (Array.isArray(base64)) {
-          console.log('Received base64 as an array; using first element.');
           base64 = base64[0];
         }
         if (!base64 || base64.length === 0) {
           console.error('Empty image data received:', base64);
           return;
         }
-        console.log('Base64 length:', base64.length);
 
         // Create an image element to load the captured picture.
         const img = new Image();
         img.onload = () => {
-          console.log('Image loaded for cropping');
-          // Get the overlay square's position and dimensions.
+          // Get the overlay square's bounding rectangle (coordinates relative to the viewport).
           const squareRect =
             this.draggableSquare.nativeElement.getBoundingClientRect();
-          console.log('Square rect:', squareRect);
 
-          // Define crop parameters assuming captured image matches window dimensions.
+          // These coordinates are used directly if the captured image matches the window dimensions.
           const cropX = squareRect.left;
           const cropY = squareRect.top;
           const cropWidth = squareRect.width;
           const cropHeight = squareRect.height;
-          console.log('Crop parameters:', {
-            cropX,
-            cropY,
-            cropWidth,
-            cropHeight,
-          });
 
-          // Create an offscreen canvas to crop the image.
+          // Create an offscreen canvas to draw the cropped portion.
           const canvas = document.createElement('canvas');
           canvas.width = cropWidth;
           canvas.height = cropHeight;
           const ctx = canvas.getContext('2d');
           if (ctx) {
+            // Crop the image using the overlay box coordinates.
             ctx.drawImage(
               img,
               cropX,
@@ -218,25 +190,23 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
             );
             const croppedDataUrl = canvas.toDataURL('image/png');
 
-            // Use NgZone to ensure Angular detects the change.
+            // Ensure Angular updates the view.
             this.ngZone.run(() => {
               this.image = croppedDataUrl.split(',')[1];
               this.currentPage = 'result';
             });
-            console.log('Cropped image generated');
             CameraPreview.stopCamera();
           } else {
             console.error('Canvas context not available');
           }
         };
         img.src = 'data:image/png;base64,' + base64;
-        console.log('Image src set for cropping');
       }
     );
   }
 
   /**
-   * Restarts the camera preview so the user can take another picture.
+   * Restarts the camera preview so the user can capture another image.
    */
   restartCamera(): void {
     this.image = '';
