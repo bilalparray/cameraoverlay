@@ -82,7 +82,6 @@ declare var CameraPreview: any;
         overflow: hidden;
         background: transparent;
       }
-      /* The draggable square overlay for cropping */
       .draggable-square {
         position: absolute;
         border: 2px dashed #fff;
@@ -119,9 +118,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   ngOnInit(): void {}
 
-  ngAfterViewInit(): void {
-    // The camera preview is started only when the user clicks "Start Camera".
-  }
+  ngAfterViewInit(): void {}
 
   /**
    * Switch to the camera view and start the preview.
@@ -143,7 +140,8 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   }
 
   /**
-   * Captures an image and then crops it based on the overlay box's dimensions.
+   * Captures an image, then crops it based on the overlay box's coordinates,
+   * scaling the values if the captured image's dimensions differ from the preview.
    */
   captureAndCrop(): void {
     CameraPreview.takePicture(
@@ -157,26 +155,41 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
           return;
         }
 
-        // Create an image element to load the captured picture.
         const img = new Image();
         img.onload = () => {
-          // Get the overlay square's bounding rectangle (coordinates relative to the viewport).
+          console.log('Captured image dimensions:', img.width, img.height);
+          const previewWidth = window.innerWidth;
+          const previewHeight = window.innerHeight;
+          console.log('Preview dimensions:', previewWidth, previewHeight);
+
+          // Calculate scaling factors between the captured image and the preview.
+          const scaleX = img.width / previewWidth;
+          const scaleY = img.height / previewHeight;
+          console.log('Scale factors:', scaleX, scaleY);
+
+          // Get the overlay square's bounding rectangle (relative to the viewport).
           const squareRect =
             this.draggableSquare.nativeElement.getBoundingClientRect();
+          console.log('Overlay square rect:', squareRect);
 
-          // These coordinates are used directly if the captured image matches the window dimensions.
-          const cropX = squareRect.left;
-          const cropY = squareRect.top;
-          const cropWidth = squareRect.width;
-          const cropHeight = squareRect.height;
+          // Calculate crop parameters by scaling the overlay's coordinates.
+          const cropX = squareRect.left * scaleX;
+          const cropY = squareRect.top * scaleY;
+          const cropWidth = squareRect.width * scaleX;
+          const cropHeight = squareRect.height * scaleY;
+          console.log('Crop parameters:', {
+            cropX,
+            cropY,
+            cropWidth,
+            cropHeight,
+          });
 
-          // Create an offscreen canvas to draw the cropped portion.
+          // Create an offscreen canvas for the crop.
           const canvas = document.createElement('canvas');
           canvas.width = cropWidth;
           canvas.height = cropHeight;
           const ctx = canvas.getContext('2d');
           if (ctx) {
-            // Crop the image using the overlay box coordinates.
             ctx.drawImage(
               img,
               cropX,
@@ -189,9 +202,10 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
               cropHeight
             );
             const croppedDataUrl = canvas.toDataURL('image/png');
+            console.log('Cropped Data URL:', croppedDataUrl);
 
-            // Ensure Angular updates the view.
             this.ngZone.run(() => {
+              // Remove the data URI prefix and update the view.
               this.image = croppedDataUrl.split(',')[1];
               this.currentPage = 'result';
             });
