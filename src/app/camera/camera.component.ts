@@ -30,7 +30,7 @@ interface Position {
     <!-- Camera Preview Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
       <div class="container">
-        <!-- Draggable overlay box for cropping -->
+        <!-- Draggable and resizable overlay box for cropping -->
         <div
           #draggableSquare
           class="draggable-square"
@@ -42,7 +42,14 @@ interface Position {
             'width.px': boxSize,
             'height.px': boxSize
           }"
-        ></div>
+        >
+          <!-- Resize handle at bottom-right -->
+          <div
+            class="resize-handle"
+            (mousedown)="startResize($event)"
+            (touchstart)="startResize($event)"
+          ></div>
+        </div>
         <button class="capture-btn" (click)="captureAndCrop()">Capture</button>
       </div>
     </div>
@@ -62,14 +69,16 @@ interface Position {
     `
       .page {
         position: relative;
-        width: 100%;
-        height: 100vh;
+        height: 100%; /* Takes full height of parent (or body) */
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         background: transparent;
         color: #000;
+      }
+      h1 {
+        text-align: center;
       }
       .action-btn,
       .capture-btn {
@@ -103,6 +112,18 @@ interface Position {
         border: 2px dashed #fff;
         touch-action: none;
       }
+      /* Resize handle styling */
+      .resize-handle {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.7);
+        border: 2px solid #000;
+        bottom: 0;
+        right: 0;
+        cursor: se-resize;
+        touch-action: none;
+      }
       .cropped-image {
         background: transparent;
         padding: 10px;
@@ -121,14 +142,14 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   @ViewChild('draggableSquare', { static: false })
   draggableSquare!: ElementRef<HTMLDivElement>;
 
-  // Manage the current view: 'home', 'camera', or 'result'
+  // Manage current view: 'home', 'camera', or 'result'
   currentPage: 'home' | 'camera' | 'result' = 'home';
 
   // Holds the cropped image (base64 string without the data URI prefix)
   image: string = '';
 
   // Box settings
-  boxSize = 200; // 200x200 pixels
+  boxSize = 200; // initial size: 200x200 pixels
   squarePos: Position = { left: 0, top: 0 };
 
   // Dragging state
@@ -137,6 +158,12 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   dragStartY = 0;
   initialSquareLeft = 0;
   initialSquareTop = 0;
+
+  // Resizing state
+  isResizing = false;
+  initialResizeX = 0;
+  initialResizeY = 0;
+  initialBoxSize = 200;
 
   constructor(private ngZone: NgZone) {}
 
@@ -172,12 +199,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
+  // DRAGGING METHODS
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
+    // Avoid conflict with resize handle
+    if ((event.target as HTMLElement).classList.contains('resize-handle')) {
+      return;
+    }
     this.dragging = true;
-
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
-    // Use clientX/clientY for consistency on mobile.
     this.dragStartX = evt.clientX;
     this.dragStartY = evt.clientY;
     this.initialSquareLeft = this.squarePos.left;
@@ -195,7 +225,6 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
     const deltaX = evt.clientX - this.dragStartX;
     const deltaY = evt.clientY - this.dragStartY;
-    // Use NgZone to update the square position so that Angular detects changes.
     this.ngZone.run(() => {
       this.squarePos = {
         left: this.initialSquareLeft + deltaX,
@@ -212,6 +241,45 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     document.removeEventListener('touchend', this.stopDrag);
   };
 
+  // RESIZING METHODS
+  startResize(event: MouseEvent | TouchEvent): void {
+    event.preventDefault();
+    event.stopPropagation(); // prevent triggering drag
+    this.isResizing = true;
+    const evt = event instanceof TouchEvent ? event.touches[0] : event;
+    this.initialResizeX = evt.clientX;
+    this.initialResizeY = evt.clientY;
+    this.initialBoxSize = this.boxSize;
+
+    document.addEventListener('mousemove', this.onResize);
+    document.addEventListener('touchmove', this.onResize, { passive: false });
+    document.addEventListener('mouseup', this.stopResize);
+    document.addEventListener('touchend', this.stopResize);
+  }
+
+  onResize = (event: MouseEvent | TouchEvent): void => {
+    if (!this.isResizing) return;
+    event.preventDefault();
+    const evt = event instanceof TouchEvent ? event.touches[0] : event;
+    const deltaX = evt.clientX - this.initialResizeX;
+    const deltaY = evt.clientY - this.initialResizeY;
+    // Use average delta for square resizing
+    const delta = (deltaX + deltaY) / 2;
+    const newSize = Math.max(50, this.initialBoxSize + delta);
+    this.ngZone.run(() => {
+      this.boxSize = newSize;
+    });
+  };
+
+  stopResize = (): void => {
+    this.isResizing = false;
+    document.removeEventListener('mousemove', this.onResize);
+    document.removeEventListener('touchmove', this.onResize);
+    document.removeEventListener('mouseup', this.stopResize);
+    document.removeEventListener('touchend', this.stopResize);
+  };
+
+  // CAPTURE & CROP
   captureAndCrop(): void {
     if (typeof window === 'undefined') return;
     CameraPreview.takePicture(
