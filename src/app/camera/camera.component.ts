@@ -11,6 +11,11 @@ import { CommonModule } from '@angular/common';
 // Assumes the CameraPreview plugin is installed and available globally.
 declare var CameraPreview: any;
 
+interface Position {
+  left: number;
+  top: number;
+}
+
 @Component({
   selector: 'app-camera-cropper',
   standalone: true,
@@ -25,8 +30,19 @@ declare var CameraPreview: any;
     <!-- Camera Preview Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
       <div class="container">
-        <!-- Overlay box for cropping -->
-        <div #draggableSquare class="draggable-square"></div>
+        <!-- Draggable overlay box for cropping -->
+        <div
+          #draggableSquare
+          class="draggable-square"
+          (mousedown)="startDrag($event)"
+          (touchstart)="startDrag($event)"
+          [ngStyle]="{
+            'left.px': squarePos.left,
+            'top.px': squarePos.top,
+            'width.px': boxSize,
+            'height.px': boxSize
+          }"
+        ></div>
         <button class="capture-btn" (click)="captureAndCrop()">Capture</button>
       </div>
     </div>
@@ -84,11 +100,8 @@ declare var CameraPreview: any;
       }
       .draggable-square {
         position: absolute;
-        border: 2px dashed #fff;
-        width: 200px;
-        height: 200px;
-        top: calc(50% - 100px);
-        left: calc(50% - 100px);
+        border: 2px dashed red;
+        touch-action: none;
       }
       .cropped-image {
         background: transparent;
@@ -114,36 +127,91 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   // Holds the cropped image (base64 string without the data URI prefix)
   image: string = '';
 
+  // Box settings
+  boxSize = 200; // 200x200 pixels
+  squarePos: Position = { left: 0, top: 0 };
+
+  // Dragging state
+  dragging = false;
+  dragStartX = 0;
+  dragStartY = 0;
+  initialSquareLeft = 0;
+  initialSquareTop = 0;
+
   constructor(private ngZone: NgZone) {}
 
-  ngOnInit(): void {}
-
-  ngAfterViewInit(): void {}
-
-  /**
-   * Switch to the camera view and start the preview.
-   */
-  goToCamera(): void {
-    this.currentPage = 'camera';
-    CameraPreview.startCamera(
-      {
-        x: 0,
-        y: 0,
-        width: window.innerWidth,
-        height: window.innerHeight,
-        camera: 'rear',
-        toBack: true, // Render preview behind the webview.
-      },
-      () => console.log('Camera preview started'),
-      (error: any) => console.error('Camera error:', error)
-    );
+  ngOnInit(): void {
+    if (typeof window !== 'undefined') {
+      // Set the initial position of the draggable square to the center of the viewport.
+      this.squarePos = {
+        left: window.innerWidth / 2 - this.boxSize / 2,
+        top: window.innerHeight / 2 - this.boxSize / 2,
+      };
+    } else {
+      // Provide default values for non-browser contexts.
+      this.squarePos = { left: 100, top: 100 };
+    }
   }
 
-  /**
-   * Captures an image, then crops it based on the overlay box's coordinates,
-   * scaling the values if the captured image's dimensions differ from the preview.
-   */
+  ngAfterViewInit(): void {
+    // No window reference here, so safe.
+  }
+
+  goToCamera(): void {
+    this.currentPage = 'camera';
+    if (typeof window !== 'undefined') {
+      CameraPreview.startCamera(
+        {
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight,
+          camera: 'rear',
+          toBack: true,
+        },
+        () => console.log('Camera preview started'),
+        (error: any) => console.error('Camera error:', error)
+      );
+    }
+  }
+
+  startDrag(event: MouseEvent | TouchEvent): void {
+    event.preventDefault();
+    this.dragging = true;
+    const evt = event instanceof TouchEvent ? event.touches[0] : event;
+    this.dragStartX = evt.pageX;
+    this.dragStartY = evt.pageY;
+    this.initialSquareLeft = this.squarePos.left;
+    this.initialSquareTop = this.squarePos.top;
+
+    document.addEventListener('mousemove', this.onDrag);
+    document.addEventListener('touchmove', this.onDrag, { passive: false });
+    document.addEventListener('mouseup', this.stopDrag);
+    document.addEventListener('touchend', this.stopDrag);
+  }
+
+  onDrag = (event: MouseEvent | TouchEvent): void => {
+    if (!this.dragging) return;
+    event.preventDefault();
+    const evt = event instanceof TouchEvent ? event.touches[0] : event;
+    const deltaX = evt.pageX - this.dragStartX;
+    const deltaY = evt.pageY - this.dragStartY;
+    this.squarePos = {
+      left: this.initialSquareLeft + deltaX,
+      top: this.initialSquareTop + deltaY,
+    };
+  };
+
+  stopDrag = (): void => {
+    this.dragging = false;
+    document.removeEventListener('mousemove', this.onDrag);
+    document.removeEventListener('touchmove', this.onDrag);
+    document.removeEventListener('mouseup', this.stopDrag);
+    document.removeEventListener('touchend', this.stopDrag);
+  };
+
   captureAndCrop(): void {
+    if (typeof window === 'undefined') return;
     CameraPreview.takePicture(
       { width: window.innerWidth, height: window.innerHeight, quality: 85 },
       (base64: any) => {
@@ -154,25 +222,19 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
           console.error('Empty image data received:', base64);
           return;
         }
-
         const img = new Image();
         img.onload = () => {
           console.log('Captured image dimensions:', img.width, img.height);
           const previewWidth = window.innerWidth;
           const previewHeight = window.innerHeight;
           console.log('Preview dimensions:', previewWidth, previewHeight);
-
-          // Calculate scaling factors between the captured image and the preview.
           const scaleX = img.width / previewWidth;
           const scaleY = img.height / previewHeight;
           console.log('Scale factors:', scaleX, scaleY);
 
-          // Get the overlay square's bounding rectangle (relative to the viewport).
           const squareRect =
             this.draggableSquare.nativeElement.getBoundingClientRect();
           console.log('Overlay square rect:', squareRect);
-
-          // Calculate crop parameters by scaling the overlay's coordinates.
           const cropX = squareRect.left * scaleX;
           const cropY = squareRect.top * scaleY;
           const cropWidth = squareRect.width * scaleX;
@@ -184,7 +246,6 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
             cropHeight,
           });
 
-          // Create an offscreen canvas for the crop.
           const canvas = document.createElement('canvas');
           canvas.width = cropWidth;
           canvas.height = cropHeight;
@@ -203,9 +264,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
             );
             const croppedDataUrl = canvas.toDataURL('image/png');
             console.log('Cropped Data URL:', croppedDataUrl);
-
             this.ngZone.run(() => {
-              // Remove the data URI prefix and update the view.
               this.image = croppedDataUrl.split(',')[1];
               this.currentPage = 'result';
             });
@@ -219,23 +278,22 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     );
   }
 
-  /**
-   * Restarts the camera preview so the user can capture another image.
-   */
   restartCamera(): void {
     this.image = '';
     this.currentPage = 'camera';
-    CameraPreview.startCamera(
-      {
-        x: 0,
-        y: 0,
-        width: window.innerWidth,
-        height: window.innerHeight,
-        camera: 'rear',
-        toBack: true,
-      },
-      () => console.log('Camera preview restarted'),
-      (error: any) => console.error('Camera error:', error)
-    );
+    if (typeof window !== 'undefined') {
+      CameraPreview.startCamera(
+        {
+          x: 0,
+          y: 0,
+          width: window.innerWidth,
+          height: window.innerHeight,
+          camera: 'rear',
+          toBack: true,
+        },
+        () => console.log('Camera preview restarted'),
+        (error: any) => console.error('Camera error:', error)
+      );
+    }
   }
 }
