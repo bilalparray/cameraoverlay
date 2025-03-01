@@ -11,7 +11,7 @@ import { CommonModule } from '@angular/common';
 })
 export class AppComponent {
   open: boolean = false;
-  title = 'static-site';
+  title = 'cropper';
   toggleCamera(): void {
     this.open = !this.open;
     console.log('Camera cropper open:', this.open);

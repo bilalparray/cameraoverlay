@@ -14,16 +14,18 @@ describe('AppComponent', () => {
     expect(app).toBeTruthy();
   });
 
-  it(`should have the 'static-site' title`, () => {
+  it(`should have the 'cropper' title`, () => {
     const fixture = TestBed.createComponent(AppComponent);
     const app = fixture.componentInstance;
-    expect(app.title).toEqual('static-site');
+    expect(app.title).toEqual('cropper');
   });
 
   it('should render title', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, static-site');
+    expect(compiled.querySelector('h1')?.textContent).toContain(
+      'Hello, cropper'
+    );
   });
 });

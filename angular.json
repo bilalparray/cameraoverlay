@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "static-site": {
+    "cropper": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -71,10 +71,10 @@
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "static-site:build:production"
+              "buildTarget": "cropper:build:production"
             },
             "development": {
-              "buildTarget": "static-site:build:development"
+              "buildTarget": "cropper:build:development"
             }
           },
           "defaultConfiguration": "development"
