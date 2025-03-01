@@ -7,9 +7,10 @@ import {
   NgZone,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-// Assumes the CameraPreview plugin is installed and available globally.
-declare var CameraPreview: any;
+import {
+  CameraPreview,
+  CameraPreviewOptions,
+} from '@capacitor-community/camera-preview';
 
 interface Position {
   left: number;
@@ -29,8 +30,10 @@ interface Position {
 
     <!-- Camera Preview Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
-      <div class="container">
-        <!-- Draggable and resizable overlay box for cropping -->
+      <!-- Native preview container (attached by the plugin) -->
+      <div class="preview-container" id="cameraPreview"></div>
+      <!-- Overlay container placed above the preview -->
+      <div class="overlay">
         <div
           #draggableSquare
           class="draggable-square"
@@ -43,7 +46,6 @@ interface Position {
             'height.px': boxSize
           }"
         >
-          <!-- Resize handle at bottom-right -->
           <div
             class="resize-handle"
             (mousedown)="startResize($event)"
@@ -67,9 +69,16 @@ interface Position {
   `,
   styles: [
     `
+      /* Make sure overall backgrounds are transparent */
+      :host,
+      html,
+      body {
+        background: transparent !important;
+      }
       .page {
         position: relative;
-        height: 100%; /* Takes full height of parent (or body) */
+        height: 100vh;
+        width: 100%;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -80,39 +89,56 @@ interface Position {
       h1 {
         text-align: center;
       }
-      .action-btn,
-      .capture-btn {
+      .action-btn {
         padding: 10px 20px;
         font-size: 18px;
         border: none;
         border-radius: 5px;
         cursor: pointer;
-      }
-      .action-btn {
+        z-index: 1100;
         color: #fff;
         background: #0066cc;
+      }
+      /* The native preview container – empty div where the preview is attached */
+      .preview-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        z-index: 1;
+      }
+      /* Overlay container on top of the preview */
+      .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+        pointer-events: auto;
       }
       .capture-btn {
         position: absolute;
         bottom: 20px;
         left: 50%;
         transform: translateX(-50%);
+        padding: 10px 20px;
+        font-size: 18px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
         color: #fff;
         background: red;
-      }
-      .container {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        background: transparent;
+        z-index: 1100;
       }
       .draggable-square {
         position: absolute;
         border: 2px dashed #fff;
         touch-action: none;
+        z-index: 1100;
       }
-      /* Resize handle styling */
       .resize-handle {
         position: absolute;
         width: 20px;
@@ -129,6 +155,7 @@ interface Position {
         padding: 10px;
         border-radius: 10px;
         margin-bottom: 20px;
+        z-index: 1100;
       }
       .cropped-image img {
         max-width: 100%;
@@ -142,24 +169,24 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   @ViewChild('draggableSquare', { static: false })
   draggableSquare!: ElementRef<HTMLDivElement>;
 
-  // Manage current view: 'home', 'camera', or 'result'
+  // Views: 'home', 'camera', 'result'
   currentPage: 'home' | 'camera' | 'result' = 'home';
 
-  // Holds the cropped image (base64 string without the data URI prefix)
+  // Cropped image data (base64 without prefix)
   image: string = '';
 
-  // Box settings
-  boxSize = 200; // initial size: 200x200 pixels
+  // Overlay box settings
+  boxSize = 200; // initial 200x200 pixels
   squarePos: Position = { left: 0, top: 0 };
 
-  // Dragging state
+  // Drag state
   dragging = false;
   dragStartX = 0;
   dragStartY = 0;
   initialSquareLeft = 0;
   initialSquareTop = 0;
 
-  // Resizing state
+  // Resize state
   isResizing = false;
   initialResizeX = 0;
   initialResizeY = 0;
@@ -169,7 +196,6 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   ngOnInit(): void {
     if (typeof window !== 'undefined') {
-      // Initialize the square in the center of the viewport.
       this.squarePos = {
         left: window.innerWidth / 2 - this.boxSize / 2,
         top: window.innerHeight / 2 - this.boxSize / 2,
@@ -184,25 +210,24 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   goToCamera(): void {
     this.currentPage = 'camera';
     if (typeof window !== 'undefined') {
-      CameraPreview.startCamera(
-        {
-          x: 0,
-          y: 0,
-          width: window.innerWidth,
-          height: window.innerHeight,
-          camera: 'rear',
-          toBack: true,
-        },
-        () => console.log('Camera preview started'),
-        (error: any) => console.error('Camera error:', error)
-      );
+      // Use window-safe options
+      const cameraPreviewOptions: CameraPreviewOptions = {
+        position: 'rear',
+        width: window.innerWidth,
+        height: window.innerHeight,
+        parent: 'cameraPreview',
+        className: 'cameraPreview',
+        toBack: true,
+      };
+      CameraPreview.start(cameraPreviewOptions)
+        .then(() => console.log('Camera preview started'))
+        .catch((error) => console.error('Camera error:', error));
     }
   }
 
   // DRAGGING METHODS
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
-    // Avoid conflict with resize handle
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
       return;
     }
@@ -244,7 +269,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   // RESIZING METHODS
   startResize(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
-    event.stopPropagation(); // prevent triggering drag
+    event.stopPropagation();
     this.isResizing = true;
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
     this.initialResizeX = evt.clientX;
@@ -263,7 +288,6 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
     const deltaX = evt.clientX - this.initialResizeX;
     const deltaY = evt.clientY - this.initialResizeY;
-    // Use average delta for square resizing
     const delta = (deltaX + deltaY) / 2;
     const newSize = Math.max(50, this.initialBoxSize + delta);
     this.ngZone.run(() => {
@@ -282,12 +306,9 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   // CAPTURE & CROP
   captureAndCrop(): void {
     if (typeof window === 'undefined') return;
-    CameraPreview.takePicture(
-      { width: window.innerWidth, height: window.innerHeight, quality: 85 },
-      (base64: any) => {
-        if (Array.isArray(base64)) {
-          base64 = base64[0];
-        }
+    CameraPreview.capture({ quality: 85 })
+      .then((result: any) => {
+        const base64 = result.value; // For this plugin, the base64 is in result.value
         if (!base64 || base64.length === 0) {
           console.error('Empty image data received:', base64);
           return;
@@ -335,35 +356,40 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
             const croppedDataUrl = canvas.toDataURL('image/png');
             console.log('Cropped Data URL:', croppedDataUrl);
             this.ngZone.run(() => {
-              this.image = croppedDataUrl.split(',')[1];
+              this.image = croppedDataUrl.split(',')[1]; // Remove data URI prefix
               this.currentPage = 'result';
             });
-            CameraPreview.stopCamera();
+            CameraPreview.stop()
+              .then(() => console.log('Camera preview stopped'))
+              .catch((error: any) =>
+                console.error('Error stopping camera:', error)
+              );
           } else {
             console.error('Canvas context not available');
           }
         };
         img.src = 'data:image/png;base64,' + base64;
-      }
-    );
+      })
+      .catch((error: any) => {
+        console.error('Capture error:', error);
+      });
   }
 
   restartCamera(): void {
     this.image = '';
     this.currentPage = 'camera';
     if (typeof window !== 'undefined') {
-      CameraPreview.startCamera(
-        {
-          x: 0,
-          y: 0,
-          width: window.innerWidth,
-          height: window.innerHeight,
-          camera: 'rear',
-          toBack: true,
-        },
-        () => console.log('Camera preview restarted'),
-        (error: any) => console.error('Camera error:', error)
-      );
+      const cameraPreviewOptions: CameraPreviewOptions = {
+        position: 'rear',
+        width: window.innerWidth,
+        height: window.innerHeight,
+        parent: 'cameraPreview',
+        className: 'cameraPreview',
+        toBack: true,
+      };
+      CameraPreview.start(cameraPreviewOptions)
+        .then(() => console.log('Camera preview restarted'))
+        .catch((error) => console.error('Camera error:', error));
     }
   }
 }
