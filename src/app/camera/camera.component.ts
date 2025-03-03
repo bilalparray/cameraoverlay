@@ -67,8 +67,8 @@ const cameraPreviewOptions: CameraPreviewOptions =
           [ngStyle]="{
             'left.px': squarePos.left,
             'top.px': squarePos.top,
-            'width.px': boxSize,
-            'height.px': boxSize
+            'width.px': boxWidth,
+            'height.px': boxHeight
           }"
         >
           <div
@@ -175,7 +175,6 @@ const cameraPreviewOptions: CameraPreviewOptions =
         position: absolute;
         width: 20px;
         height: 5px;
-
         background: rgba(197, 35, 35, 0.7);
         border: none;
         border-radius: 10px;
@@ -216,8 +215,9 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   // Gallery image base64 string (without prefix)
   galleryImage: string = '';
 
-  // Overlay box settings
-  boxSize = 200;
+  // Overlay rectangle settings
+  boxWidth = 200;
+  boxHeight = 200;
   squarePos: Position = { left: 0, top: 0 };
 
   // Drag state
@@ -231,15 +231,21 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   isResizing = false;
   initialResizeX = 0;
   initialResizeY = 0;
-  initialBoxSize = 200;
+  initialBoxWidth = 200;
+  initialBoxHeight = 200;
+
+  // For keeping the center fixed during resize
+  resizeCenterX: number = 0;
+  resizeCenterY: number = 0;
 
   constructor(private ngZone: NgZone) {}
 
   ngOnInit(): void {
     if (typeof window !== 'undefined') {
+      // Center the rectangle on the screen.
       this.squarePos = {
-        left: window.innerWidth / 2 - this.boxSize / 2,
-        top: window.innerHeight / 2 - this.boxSize / 2,
+        left: window.innerWidth / 2 - this.boxWidth / 2,
+        top: window.innerHeight / 2 - this.boxHeight / 2,
       };
     } else {
       this.squarePos = { left: 100, top: 100 };
@@ -328,7 +334,11 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
     this.initialResizeX = evt.clientX;
     this.initialResizeY = evt.clientY;
-    this.initialBoxSize = this.boxSize;
+    this.initialBoxWidth = this.boxWidth;
+    this.initialBoxHeight = this.boxHeight;
+    // Calculate and store the current center of the rectangle.
+    this.resizeCenterX = this.squarePos.left + this.boxWidth / 2;
+    this.resizeCenterY = this.squarePos.top + this.boxHeight / 2;
 
     document.addEventListener('mousemove', this.onResize);
     document.addEventListener('touchmove', this.onResize, { passive: false });
@@ -342,10 +352,16 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     const evt = event instanceof TouchEvent ? event.touches[0] : event;
     const deltaX = evt.clientX - this.initialResizeX;
     const deltaY = evt.clientY - this.initialResizeY;
-    const delta = (deltaX + deltaY) / 2;
-    const newSize = Math.max(50, this.initialBoxSize + delta);
+    const newWidth = Math.max(50, this.initialBoxWidth + deltaX);
+    const newHeight = Math.max(50, this.initialBoxHeight + deltaY);
     this.ngZone.run(() => {
-      this.boxSize = newSize;
+      this.boxWidth = newWidth;
+      this.boxHeight = newHeight;
+      // Adjust position so the center remains fixed.
+      this.squarePos = {
+        left: this.resizeCenterX - newWidth / 2,
+        top: this.resizeCenterY - newHeight / 2,
+      };
     });
   };
 
@@ -362,7 +378,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   captureAndCrop(): void {
     if (typeof window === 'undefined') return;
     if (this.sourceMode === 'gallery') {
-      // Process the already-selected gallery image
+      // Process the already-selected gallery image.
       this.processImage(this.galleryImage);
     } else {
       // In camera mode, capture from the native preview.
@@ -393,13 +409,12 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
       const scaleY = img.height / previewHeight;
       console.log('Scale factors:', scaleX, scaleY);
 
-      const squareRect =
-        this.draggableSquare.nativeElement.getBoundingClientRect();
-      console.log('Overlay square rect:', squareRect);
-      const cropX = squareRect.left * scaleX;
-      const cropY = squareRect.top * scaleY;
-      const cropWidth = squareRect.width * scaleX;
-      const cropHeight = squareRect.height * scaleY;
+      const rect = this.draggableSquare.nativeElement.getBoundingClientRect();
+      console.log('Overlay rectangle rect:', rect);
+      const cropX = rect.left * scaleX;
+      const cropY = rect.top * scaleY;
+      const cropWidth = rect.width * scaleX;
+      const cropHeight = rect.height * scaleY;
       console.log('Crop parameters:', { cropX, cropY, cropWidth, cropHeight });
 
       const canvas = document.createElement('canvas');
@@ -421,7 +436,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
         const croppedDataUrl = canvas.toDataURL('image/png');
         console.log('Cropped Data URL:', croppedDataUrl);
         this.ngZone.run(() => {
-          this.image = croppedDataUrl.split(',')[1]; // Remove data URI prefix
+          this.image = croppedDataUrl.split(',')[1]; // Remove data URI prefix.
           this.currentPage = 'result';
         });
         if (this.sourceMode === 'camera') {
