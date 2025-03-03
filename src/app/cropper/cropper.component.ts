@@ -12,6 +12,7 @@ import {
   CameraPreviewOptions,
 } from '@capacitor-community/camera-preview';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { RouterModule } from '@angular/router';
 
 interface Position {
   left: number;
@@ -34,7 +35,7 @@ const cameraPreviewOptions: CameraPreviewOptions =
 @Component({
   selector: 'app-cropper',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterModule],
   template: `
     <!-- Home Screen -->
     <div *ngIf="currentPage === 'home'" class="page">
@@ -109,6 +110,13 @@ const cameraPreviewOptions: CameraPreviewOptions =
 
       <button class="action-btn" (click)="restart()">Restart</button>
       <button class="action-btn" (click)="currentPage = 'home'">Home</button>
+      <button
+        class="action-btn"
+        [routerLink]="['/home']"
+        routerLinkActive="router-link-active"
+      >
+        Go Home
+      </button>
     </div>
   `,
   styles: [
