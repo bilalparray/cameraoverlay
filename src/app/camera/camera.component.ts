@@ -240,6 +240,12 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   constructor(private ngZone: NgZone) {}
 
+  /**
+   * Lifecycle hook: initializes the component.
+   *
+   * Centers the rectangle on the screen in the browser, or assigns a default
+   * position if running in a server environment.
+   */
   ngOnInit(): void {
     if (typeof window !== 'undefined') {
       // Center the rectangle on the screen.
@@ -256,6 +262,9 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   // HOME SCREEN METHODS
 
+  /**
+   * Navigate to the camera screen and start the camera preview.
+   */
   goToCamera(): void {
     this.sourceMode = 'camera';
     this.currentPage = 'camera';
@@ -266,6 +275,14 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
+  /**
+   * Navigate to the camera screen and select an image from the gallery.
+   *
+   * Calls the `Camera.getPhoto` method to select an image from the gallery.
+   * On success, sets the `galleryImage` property to the selected image's base64
+   * string and navigates to the camera screen. In case of an error, logs an error
+   * to the console.
+   */
   async chooseFromGallery(): Promise<void> {
     try {
       const image = await Camera.getPhoto({
@@ -285,6 +302,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   // DRAGGING METHODS
 
+  /**
+   * Start the drag event on the square.
+   *
+   * Sets `dragging` to true and records the initial mouse position and the
+   * initial left and top positions of the square. Then adds event listeners for
+   * mousemove and touchmove to track the drag, and for mouseup and touchend to
+   * stop the drag.
+   * @param event The event that triggered the drag (MouseEvent or TouchEvent)
+   */
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
@@ -327,6 +353,10 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   // RESIZING METHODS
 
+  /**
+   * Starts the resizing process.
+   * @param event mouse or touch event that triggered the resizing.
+   */
   startResize(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -375,6 +405,14 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   // CAPTURE & CROP
 
+  /**
+   * Captures an image from the current source (either the gallery image or the
+   * native camera preview) and crops it to the currently selected box
+   * dimensions. If the source is the gallery, the image is processed immediately.
+   * If the source is the camera, the method waits for the capture to complete and
+   * then processes the result. If the capture fails, an error is logged to the
+   * console.
+   */
   captureAndCrop(): void {
     if (typeof window === 'undefined') return;
     if (this.sourceMode === 'gallery') {
@@ -397,6 +435,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
+  /**
+   * Processes a base64 image string by loading it into an HTML Image object and
+   * cropping it to the dimensions of the currently selected box. The image is
+   * scaled to match the preview dimensions, and the box coordinates are adjusted
+   * accordingly. The resulting cropped image is then converted to a Data URL
+   * and stored in the component state. If the source mode is 'camera', the
+   * camera preview is stopped after processing the image.
+   * @param base64 the base64 image string to process
+   */
   private processImage(base64: string): void {
     const img = new Image();
     img.onload = () => {
@@ -453,6 +500,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     img.src = 'data:image/png;base64,' + base64;
   }
 
+  /**
+   * Restart the camera preview.
+   *
+   * Reset the component state to its initial values, and restart the camera
+   * preview if the source mode is 'camera'. In gallery mode, the component will
+   * stay in the same view. If the camera preview is restarted, the camera
+   * preview will be started again with the same options as when the component
+   * was initialized.
+   */
   restartCamera(): void {
     this.image = '';
     this.currentPage = 'camera';
