@@ -18,7 +18,6 @@ interface Position {
   top: number;
 }
 
-// Define camera preview options (for camera mode).
 const cameraPreviewOptions: CameraPreviewOptions =
   typeof window !== 'undefined'
     ? {
@@ -32,55 +31,66 @@ const cameraPreviewOptions: CameraPreviewOptions =
     : {};
 
 @Component({
-  selector: 'app-camera-cropper',
+  selector: 'app-cropper',
   standalone: true,
   imports: [CommonModule],
   template: `
     <!-- Home / Start Screen -->
     <div *ngIf="currentPage === 'home'" class="page">
-      <h1>Welcome to Camera Cropper Test Case 1</h1>
+      <h1>Welcome to Cropper</h1>
       <button class="action-btn" (click)="goToCamera()">Start Camera</button>
       <button class="action-btn" (click)="chooseFromGallery()">
         Select from Gallery
       </button>
     </div>
 
-    <!-- Camera/Gallery Preview Screen -->
+    <!-- Camera / Cropping Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
-      <!-- Container for native preview or gallery image -->
-      <div class="container" id="cameraPreview">
-        <!-- When in gallery mode, show the selected image -->
-        <img
-          *ngIf="sourceMode === 'gallery'"
-          [src]="'data:image/png;base64,' + galleryImage"
-          class="gallery-preview"
-          alt="Selected Image"
-        />
-      </div>
-      <!-- Overlay UI for cropping -->
-      <div class="overlay">
+      <!-- If no image is captured, show the live preview with capture button -->
+      <ng-container *ngIf="!capturedImage; else cropScreen">
         <div
-          #draggableSquare
-          class="draggable-square"
-          (mousedown)="startDrag($event)"
-          (touchstart)="startDrag($event)"
-          [ngStyle]="{
-            'left.px': squarePos.left,
-            'top.px': squarePos.top,
-            'width.px': boxWidth,
-            'height.px': boxHeight
-          }"
-        >
-          <div
-            class="resize-handle"
-            (mousedown)="startResize($event)"
-            (touchstart)="startResize($event)"
-          ></div>
+          *ngIf="sourceMode === 'camera'"
+          class="container"
+          id="cameraPreview"
+        ></div>
+        <div class="overlay">
+          <button class="capture-btn" (click)="captureAndCrop()">
+            Capture
+          </button>
         </div>
-        <button class="capture-btn" (click)="captureAndCrop()">
-          {{ sourceMode === 'gallery' ? 'Crop' : 'Capture' }}
-        </button>
-      </div>
+      </ng-container>
+
+      <!-- Once a picture is taken or uploaded, display it with cropping UI -->
+      <ng-template #cropScreen>
+        <img
+          #galleryImg
+          [src]="'data:image/png;base64,' + capturedImage"
+          class="gallery-preview"
+          alt="Captured Image"
+          (load)="onGalleryImageLoad()"
+        />
+        <div class="overlay">
+          <div
+            #draggableSquare
+            class="draggable-square"
+            (mousedown)="startDrag($event)"
+            (touchstart)="startDrag($event)"
+            [ngStyle]="{
+              'left.px': squarePos.left,
+              'top.px': squarePos.top,
+              'width.px': boxWidth,
+              'height.px': boxHeight
+            }"
+          >
+            <div
+              class="resize-handle"
+              (mousedown)="startResize($event)"
+              (touchstart)="startResize($event)"
+            ></div>
+          </div>
+          <button class="capture-btn" (click)="captureAndCrop()">Crop</button>
+        </div>
+      </ng-template>
     </div>
 
     <!-- Cropped Image Result Screen -->
@@ -126,7 +136,7 @@ const cameraPreviewOptions: CameraPreviewOptions =
         color: #fff;
         background: #0066cc;
       }
-      /* Container for preview; when in camera mode, the native preview attaches here */
+      /* Container for camera preview */
       .container {
         position: absolute;
         top: 0;
@@ -136,13 +146,13 @@ const cameraPreviewOptions: CameraPreviewOptions =
         background: transparent;
         z-index: 1;
       }
-      /* When in gallery mode, show the selected image */
+      /* Display captured/gallery image */
       .gallery-preview {
         width: 100%;
         height: 100%;
         object-fit: cover;
       }
-      /* Overlay container for draggable square and button */
+      /* Overlay container for capture button or crop UI */
       .overlay {
         position: absolute;
         top: 0;
@@ -200,23 +210,26 @@ const cameraPreviewOptions: CameraPreviewOptions =
     `,
   ],
 })
-export class CameraCropperComponent implements OnInit, AfterViewInit {
+export class Cropper implements OnInit, AfterViewInit {
   @ViewChild('draggableSquare', { static: false })
   draggableSquare!: ElementRef<HTMLDivElement>;
 
-  // Views: 'home', 'camera', 'result'
+  @ViewChild('galleryImg', { static: false })
+  galleryImgRef!: ElementRef<HTMLImageElement>;
+
+  // Screen states: 'home', 'camera', 'result'
   currentPage: 'home' | 'camera' | 'result' = 'home';
 
-  // Cropped image (base64 without prefix)
+  // Cropped image (base64 without data URL prefix)
   image: string = '';
 
-  // Mode: 'camera' or 'gallery'
+  // Source mode: 'camera' or 'gallery'
   sourceMode: 'camera' | 'gallery' = 'camera';
 
-  // Gallery image base64 string (without prefix)
-  galleryImage: string = '';
+  // Holds the captured or gallery-selected image (base64 string)
+  capturedImage: string = '';
 
-  // Overlay rectangle settings
+  // Crop box settings
   boxWidth = 200;
   boxHeight = 200;
   squarePos: Position = { left: 0, top: 0 };
@@ -234,22 +247,14 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   initialResizeY = 0;
   initialBoxWidth = 200;
   initialBoxHeight = 200;
-
-  // For keeping the center fixed during resize
   resizeCenterX: number = 0;
   resizeCenterY: number = 0;
 
   constructor(private ngZone: NgZone) {}
 
-  /**
-   * Lifecycle hook: initializes the component.
-   *
-   * Centers the rectangle on the screen in the browser, or assigns a default
-   * position if running in a server environment.
-   */
   ngOnInit(): void {
+    // For camera mode, center the crop box using window dimensions.
     if (typeof window !== 'undefined') {
-      // Center the rectangle on the screen.
       this.squarePos = {
         left: window.innerWidth / 2 - this.boxWidth / 2,
         top: window.innerHeight / 2 - this.boxHeight / 2,
@@ -261,14 +266,12 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
 
   ngAfterViewInit(): void {}
 
-  // HOME SCREEN METHODS
+  // --- HOME SCREEN METHODS ---
 
-  /**
-   * Navigate to the camera screen and start the camera preview.
-   */
   goToCamera(): void {
     this.sourceMode = 'camera';
     this.currentPage = 'camera';
+    this.capturedImage = '';
     if (typeof window !== 'undefined') {
       CameraPreview.start(cameraPreviewOptions)
         .then(() => console.log('Camera preview started'))
@@ -276,23 +279,15 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
-  /**
-   * Navigate to the camera screen and select an image from the gallery.
-   *
-   * Calls the `Camera.getPhoto` method to select an image from the gallery.
-   * On success, sets the `galleryImage` property to the selected image's base64
-   * string and navigates to the camera screen. In case of an error, logs an error
-   * to the console.
-   */
   async chooseFromGallery(): Promise<void> {
     try {
-      const image = await Camera.getPhoto({
+      const photo = await Camera.getPhoto({
         quality: 85,
         resultType: CameraResultType.Base64,
         source: CameraSource.Photos,
       });
-      // image.base64String contains the base64 without prefix
-      this.galleryImage = image.base64String || '';
+      // Set the captured image so that the cropping UI is shown.
+      this.capturedImage = photo.base64String || '';
       this.sourceMode = 'gallery';
       this.currentPage = 'camera';
       console.log('Gallery image selected');
@@ -301,17 +296,22 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
-  // DRAGGING METHODS
+  // --- GALLERY IMAGE LOAD HANDLER ---
+  onGalleryImageLoad(): void {
+    // Get the displayed dimensions of the gallery image
+    const galleryRect =
+      this.galleryImgRef.nativeElement.getBoundingClientRect();
+    // Reset crop box size to 50% of the gallery image width/height and center it.
+    this.boxWidth = galleryRect.width * 0.5;
+    this.boxHeight = galleryRect.height * 0.5;
+    this.squarePos = {
+      left: (galleryRect.width - this.boxWidth) / 2,
+      top: (galleryRect.height - this.boxHeight) / 2,
+    };
+  }
 
-  /**
-   * Start the drag event on the square.
-   *
-   * Sets `dragging` to true and records the initial mouse position and the
-   * initial left and top positions of the square. Then adds event listeners for
-   * mousemove and touchmove to track the drag, and for mouseup and touchend to
-   * stop the drag.
-   * @param event The event that triggered the drag (MouseEvent or TouchEvent)
-   */
+  // --- DRAGGING METHODS ---
+
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
@@ -352,12 +352,8 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     document.removeEventListener('touchend', this.stopDrag);
   };
 
-  // RESIZING METHODS
+  // --- RESIZING METHODS ---
 
-  /**
-   * Starts the resizing process.
-   * @param event mouse or touch event that triggered the resizing.
-   */
   startResize(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -367,7 +363,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     this.initialResizeY = evt.clientY;
     this.initialBoxWidth = this.boxWidth;
     this.initialBoxHeight = this.boxHeight;
-    // Calculate and store the current center of the rectangle.
+    // Store the current center of the box.
     this.resizeCenterX = this.squarePos.left + this.boxWidth / 2;
     this.resizeCenterY = this.squarePos.top + this.boxHeight / 2;
 
@@ -388,7 +384,7 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     this.ngZone.run(() => {
       this.boxWidth = newWidth;
       this.boxHeight = newHeight;
-      // Adjust position so the center remains fixed.
+      // Adjust the box to keep its center fixed.
       this.squarePos = {
         left: this.resizeCenterX - newWidth / 2,
         top: this.resizeCenterY - newHeight / 2,
@@ -404,67 +400,64 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
     document.removeEventListener('touchend', this.stopResize);
   };
 
-  // CAPTURE & CROP
+  // --- CAPTURE & CROP METHODS ---
 
   /**
-   * Captures an image from the current source (either the gallery image or the
-   * native camera preview) and crops it to the currently selected box
-   * dimensions. If the source is the gallery, the image is processed immediately.
-   * If the source is the camera, the method waits for the capture to complete and
-   * then processes the result. If the capture fails, an error is logged to the
-   * console.
+   * When no image is captured, this method captures a photo from the live camera preview.
+   * When an image already exists (from camera capture or gallery), it crops the image
+   * using the draggable crop box.
    */
   captureAndCrop(): void {
-    if (typeof window === 'undefined') return;
-    if (this.sourceMode === 'gallery') {
-      // Process the already-selected gallery image.
-      this.processImage(this.galleryImage);
-    } else {
-      // In camera mode, capture from the native preview.
+    if (!this.capturedImage && this.sourceMode === 'camera') {
+      // Capture photo from camera preview.
       CameraPreview.capture({ quality: 85 })
         .then((result: any) => {
-          const base64 = result.value; // base64 image string
+          const base64 = result.value;
           if (!base64 || base64.length === 0) {
             console.error('Empty image data received:', base64);
             return;
           }
-          this.processImage(base64);
+          this.capturedImage = base64;
+          // Stop the camera preview now that a photo is taken.
+          CameraPreview.stop()
+            .then(() => console.log('Camera preview stopped'))
+            .catch((error: any) =>
+              console.error('Error stopping camera:', error)
+            );
         })
         .catch((error: any) => {
           console.error('Capture error:', error);
         });
+    } else if (this.capturedImage) {
+      // Crop the captured (or gallery-selected) image using the drag box settings.
+      this.processImage(this.capturedImage);
     }
   }
 
   /**
-   * Processes a base64 image string by loading it into an HTML Image object and
-   * cropping it to the dimensions of the currently selected box. The image is
-   * scaled to match the preview dimensions, and the box coordinates are adjusted
-   * accordingly. The resulting cropped image is then converted to a Data URL
-   * and stored in the component state. If the source mode is 'camera', the
-   * camera preview is stopped after processing the image.
-   * @param base64 the base64 image string to process
+   * Loads the image from a base64 string, then crops it using the coordinates
+   * of the draggable crop box. When in gallery mode, the displayed image dimensions
+   * are used to calculate the scale factors.
    */
   private processImage(base64: string): void {
     const img = new Image();
     img.onload = () => {
-      console.log('Captured image dimensions:', img.width, img.height);
-      // Use window dimensions as preview dimensions.
-      const previewWidth = window.innerWidth;
-      const previewHeight = window.innerHeight;
-      console.log('Preview dimensions:', previewWidth, previewHeight);
+      // Use different preview dimensions based on source mode.
+      let previewWidth = window.innerWidth;
+      let previewHeight = window.innerHeight;
+      if (this.sourceMode === 'gallery' && this.galleryImgRef) {
+        const galleryRect =
+          this.galleryImgRef.nativeElement.getBoundingClientRect();
+        previewWidth = galleryRect.width;
+        previewHeight = galleryRect.height;
+      }
       const scaleX = img.width / previewWidth;
       const scaleY = img.height / previewHeight;
-      console.log('Scale factors:', scaleX, scaleY);
-
       const rect = this.draggableSquare.nativeElement.getBoundingClientRect();
-      console.log('Overlay rectangle rect:', rect);
       const cropX = rect.left * scaleX;
       const cropY = rect.top * scaleY;
       const cropWidth = rect.width * scaleX;
       const cropHeight = rect.height * scaleY;
-      console.log('Crop parameters:', { cropX, cropY, cropWidth, cropHeight });
-
       const canvas = document.createElement('canvas');
       canvas.width = cropWidth;
       canvas.height = cropHeight;
@@ -482,18 +475,10 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
           cropHeight
         );
         const croppedDataUrl = canvas.toDataURL('image/png');
-        console.log('Cropped Data URL:', croppedDataUrl);
         this.ngZone.run(() => {
-          this.image = croppedDataUrl.split(',')[1]; // Remove data URI prefix.
+          this.image = croppedDataUrl.split(',')[1]; // Remove data URL prefix.
           this.currentPage = 'result';
         });
-        if (this.sourceMode === 'camera') {
-          CameraPreview.stop()
-            .then(() => console.log('Camera preview stopped'))
-            .catch((error: any) =>
-              console.error('Error stopping camera:', error)
-            );
-        }
       } else {
         console.error('Canvas context not available');
       }
@@ -502,34 +487,16 @@ export class CameraCropperComponent implements OnInit, AfterViewInit {
   }
 
   /**
-   * Restart the camera preview.
-   *
-   * Reset the component state to its initial values, and restart the camera
-   * preview if the source mode is 'camera'. In gallery mode, the component will
-   * stay in the same view. If the camera preview is restarted, the camera
-   * preview will be started again with the same options as when the component
-   * was initialized.
+   * Resets the state and, if in camera mode, restarts the camera preview.
    */
   restartCamera(): void {
     this.image = '';
+    this.capturedImage = '';
     this.currentPage = 'camera';
-    if (typeof window !== 'undefined') {
-      if (this.sourceMode === 'gallery') {
-        // In gallery mode, simply stay in the same view.
-        console.log('Restarting in gallery mode');
-      } else {
-        const cameraPreviewOptions: CameraPreviewOptions = {
-          position: 'rear',
-          width: window.innerWidth,
-          height: window.innerHeight,
-          parent: 'cameraPreview',
-          className: 'cameraPreview',
-          toBack: true,
-        };
-        CameraPreview.start(cameraPreviewOptions)
-          .then(() => console.log('Camera preview restarted'))
-          .catch((error) => console.error('Camera error:', error));
-      }
+    if (typeof window !== 'undefined' && this.sourceMode === 'camera') {
+      CameraPreview.start(cameraPreviewOptions)
+        .then(() => console.log('Camera preview restarted'))
+        .catch((error) => console.error('Camera error:', error));
     }
   }
 }

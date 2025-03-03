@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
-import { CameraCropperComponent } from './camera/camera.component';
 import { CommonModule } from '@angular/common';
+import { Cropper } from './cropper/cropper.component';
+import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-root',
-  imports: [CameraCropperComponent, CommonModule],
+  imports: [CommonModule, RouterModule],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
