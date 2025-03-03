@@ -12,6 +12,7 @@ import {
   CameraPreviewOptions,
 } from '@capacitor-community/camera-preview';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { RouterModule } from '@angular/router';
 
 interface Position {
   left: number;
@@ -33,7 +34,7 @@ const cameraPreviewOptions: CameraPreviewOptions =
 @Component({
   selector: 'app-cropper',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterModule],
   template: `
     <!-- Home / Start Screen -->
     <div *ngIf="currentPage === 'home'" class="page">
@@ -42,11 +43,18 @@ const cameraPreviewOptions: CameraPreviewOptions =
       <button class="action-btn" (click)="chooseFromGallery()">
         Select from Gallery
       </button>
+      <button
+        class="action-btn"
+        [routerLink]="['/home']"
+        routerLinkActive="router-link-active"
+      >
+        Go Home
+      </button>
     </div>
 
     <!-- Camera / Cropping Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
-      <!-- If no image is captured, show the live preview with capture button -->
+      <!-- When no image is captured, show the live preview with capture button -->
       <ng-container *ngIf="!capturedImage; else cropScreen">
         <div
           *ngIf="sourceMode === 'camera'"
@@ -150,7 +158,7 @@ const cameraPreviewOptions: CameraPreviewOptions =
       .gallery-preview {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
       }
       /* Overlay container for capture button or crop UI */
       .overlay {
@@ -220,13 +228,13 @@ export class Cropper implements OnInit, AfterViewInit {
   // Screen states: 'home', 'camera', 'result'
   currentPage: 'home' | 'camera' | 'result' = 'home';
 
-  // Cropped image (base64 without data URL prefix)
+  // Cropped image (base64 string without the data URL prefix)
   image: string = '';
 
   // Source mode: 'camera' or 'gallery'
   sourceMode: 'camera' | 'gallery' = 'camera';
 
-  // Holds the captured or gallery-selected image (base64 string)
+  // Holds the captured or gallery-selected image (base64)
   capturedImage: string = '';
 
   // Crop box settings
@@ -298,20 +306,22 @@ export class Cropper implements OnInit, AfterViewInit {
 
   // --- GALLERY IMAGE LOAD HANDLER ---
   onGalleryImageLoad(): void {
-    // Get the displayed dimensions of the gallery image
-    const galleryRect =
+    if (this.sourceMode !== 'gallery') {
+      return;
+    }
+    // Get the container (gallery image) dimensions.
+    const containerRect =
       this.galleryImgRef.nativeElement.getBoundingClientRect();
-    // Reset crop box size to 50% of the gallery image width/height and center it.
-    this.boxWidth = galleryRect.width * 0.5;
-    this.boxHeight = galleryRect.height * 0.5;
+    // Reset crop box to 50% of the displayed image size and center it.
+    this.boxWidth = containerRect.width * 0.5;
+    this.boxHeight = containerRect.height * 0.5;
     this.squarePos = {
-      left: (galleryRect.width - this.boxWidth) / 2,
-      top: (galleryRect.height - this.boxHeight) / 2,
+      left: (containerRect.width - this.boxWidth) / 2,
+      top: (containerRect.height - this.boxHeight) / 2,
     };
   }
 
   // --- DRAGGING METHODS ---
-
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
@@ -353,7 +363,6 @@ export class Cropper implements OnInit, AfterViewInit {
   };
 
   // --- RESIZING METHODS ---
-
   startResize(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -401,15 +410,12 @@ export class Cropper implements OnInit, AfterViewInit {
   };
 
   // --- CAPTURE & CROP METHODS ---
-
   /**
-   * When no image is captured, this method captures a photo from the live camera preview.
-   * When an image already exists (from camera capture or gallery), it crops the image
-   * using the draggable crop box.
+   * If no image is captured (and source is camera), capture a photo.
+   * Otherwise, process the captured (or gallery-selected) image by cropping it.
    */
   captureAndCrop(): void {
     if (!this.capturedImage && this.sourceMode === 'camera') {
-      // Capture photo from camera preview.
       CameraPreview.capture({ quality: 85 })
         .then((result: any) => {
           const base64 = result.value;
@@ -418,7 +424,6 @@ export class Cropper implements OnInit, AfterViewInit {
             return;
           }
           this.capturedImage = base64;
-          // Stop the camera preview now that a photo is taken.
           CameraPreview.stop()
             .then(() => console.log('Camera preview stopped'))
             .catch((error: any) =>
@@ -429,35 +434,66 @@ export class Cropper implements OnInit, AfterViewInit {
           console.error('Capture error:', error);
         });
     } else if (this.capturedImage) {
-      // Crop the captured (or gallery-selected) image using the drag box settings.
       this.processImage(this.capturedImage);
     }
   }
 
   /**
-   * Loads the image from a base64 string, then crops it using the coordinates
-   * of the draggable crop box. When in gallery mode, the displayed image dimensions
-   * are used to calculate the scale factors.
+   * Loads the image from a base64 string, then crops it using the draggable crop box.
+   * For gallery uploads, we calculate the actual displayed image size (with letterboxing)
+   * based on the container and the image's natural dimensions.
    */
   private processImage(base64: string): void {
     const img = new Image();
     img.onload = () => {
-      // Use different preview dimensions based on source mode.
-      let previewWidth = window.innerWidth;
-      let previewHeight = window.innerHeight;
+      let cropX: number, cropY: number, cropWidth: number, cropHeight: number;
       if (this.sourceMode === 'gallery' && this.galleryImgRef) {
-        const galleryRect =
+        // Get the container dimensions.
+        const containerRect =
           this.galleryImgRef.nativeElement.getBoundingClientRect();
-        previewWidth = galleryRect.width;
-        previewHeight = galleryRect.height;
+        const containerWidth = containerRect.width;
+        const containerHeight = containerRect.height;
+        // Get the natural dimensions of the image.
+        const naturalWidth = img.naturalWidth;
+        const naturalHeight = img.naturalHeight;
+        // For object-fit: contain, the image is scaled uniformly.
+        const scale = Math.min(
+          containerWidth / naturalWidth,
+          containerHeight / naturalHeight
+        );
+        const displayedWidth = naturalWidth * scale;
+        const displayedHeight = naturalHeight * scale;
+        // Calculate offsets (letterboxing) if any.
+        const offsetX = (containerWidth - displayedWidth) / 2;
+        const offsetY = (containerHeight - displayedHeight) / 2;
+        // Get crop box rect relative to the viewport.
+        const cropRect =
+          this.draggableSquare.nativeElement.getBoundingClientRect();
+        // Also get the container's position.
+        const containerLeft = containerRect.left;
+        const containerTop = containerRect.top;
+        // Map crop box coordinates to the image's coordinate system.
+        cropX =
+          (cropRect.left - containerLeft - offsetX) *
+          (naturalWidth / displayedWidth);
+        cropY =
+          (cropRect.top - containerTop - offsetY) *
+          (naturalHeight / displayedHeight);
+        cropWidth = cropRect.width * (naturalWidth / displayedWidth);
+        cropHeight = cropRect.height * (naturalHeight / displayedHeight);
+      } else {
+        // For camera mode, assume the image fills the screen.
+        const previewWidth = window.innerWidth;
+        const previewHeight = window.innerHeight;
+        const scaleX = img.width / previewWidth;
+        const scaleY = img.height / previewHeight;
+        const rect = this.draggableSquare.nativeElement.getBoundingClientRect();
+        cropX = rect.left * scaleX;
+        cropY = rect.top * scaleY;
+        cropWidth = rect.width * scaleX;
+        cropHeight = rect.height * scaleY;
       }
-      const scaleX = img.width / previewWidth;
-      const scaleY = img.height / previewHeight;
-      const rect = this.draggableSquare.nativeElement.getBoundingClientRect();
-      const cropX = rect.left * scaleX;
-      const cropY = rect.top * scaleY;
-      const cropWidth = rect.width * scaleX;
-      const cropHeight = rect.height * scaleY;
+
       const canvas = document.createElement('canvas');
       canvas.width = cropWidth;
       canvas.height = cropHeight;
@@ -475,8 +511,10 @@ export class Cropper implements OnInit, AfterViewInit {
           cropHeight
         );
         const croppedDataUrl = canvas.toDataURL('image/png');
+        // Reset the crop box to its initial position and size.
+        this.resetCropBox();
         this.ngZone.run(() => {
-          this.image = croppedDataUrl.split(',')[1]; // Remove data URL prefix.
+          this.image = croppedDataUrl.split(',')[1]; // remove data URL prefix
           this.currentPage = 'result';
         });
       } else {
@@ -484,6 +522,33 @@ export class Cropper implements OnInit, AfterViewInit {
       }
     };
     img.src = 'data:image/png;base64,' + base64;
+  }
+
+  /**
+   * Resets the crop box (drag box) to its default position and size.
+   * For gallery mode, the crop box is centered and set to 50% of the container.
+   * For camera mode, it resets to a fixed 200x200 box centered in the window.
+   */
+  private resetCropBox(): void {
+    if (this.sourceMode === 'gallery' && this.galleryImgRef) {
+      const containerRect =
+        this.galleryImgRef.nativeElement.getBoundingClientRect();
+      const defaultWidth = containerRect.width * 0.5;
+      const defaultHeight = containerRect.height * 0.5;
+      this.boxWidth = defaultWidth;
+      this.boxHeight = defaultHeight;
+      this.squarePos = {
+        left: (containerRect.width - defaultWidth) / 2,
+        top: (containerRect.height - defaultHeight) / 2,
+      };
+    } else {
+      this.boxWidth = 200;
+      this.boxHeight = 200;
+      this.squarePos = {
+        left: window.innerWidth / 2 - 200 / 2,
+        top: window.innerHeight / 2 - 200 / 2,
+      };
+    }
   }
 
   /**
