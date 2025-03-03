@@ -174,11 +174,14 @@ const cameraPreviewOptions: CameraPreviewOptions =
       .resize-handle {
         position: absolute;
         width: 20px;
-        height: 20px;
-        background: rgba(255, 255, 255, 0.7);
-        border: 2px solid #000;
+        height: 5px;
+
+        background: rgba(197, 35, 35, 0.7);
+        border: none;
+        border-radius: 10px;
         bottom: 0;
-        right: 0;
+        right: 50%;
+        transform: translateX(50%);
         cursor: se-resize;
         touch-action: none;
       }
