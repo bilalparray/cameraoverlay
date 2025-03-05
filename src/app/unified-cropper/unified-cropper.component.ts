@@ -214,10 +214,19 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   boxHeight: number = 200;
   squarePos: Position = { left: 0, top: 0 };
 
-  // Drag/resize state variables (implement as needed)
+  // Drag state variables
   dragging: boolean = false;
+  dragStartX: number = 0;
+  dragStartY: number = 0;
+  initialSquareLeft: number = 0;
+  initialSquareTop: number = 0;
+
+  // Resize state variables
   isResizing: boolean = false;
-  // ... additional variables for drag/resize tracking
+  initialResizeX: number = 0;
+  initialResizeY: number = 0;
+  initialBoxWidth: number = 200;
+  initialBoxHeight: number = 200;
 
   constructor(
     private ngZone: NgZone,
@@ -244,7 +253,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     this.cropMode = mode;
     this.currentPage = 'camera';
     if (this.isBrowser) {
-      // Start the camera preview regardless of mode
+      // Start the camera preview regardless of mode.
       this.startCameraPreview();
     }
   }
@@ -267,7 +276,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       .catch((error) => console.error('Error starting camera preview:', error));
   }
 
-  // For post-capture mode, capture the full image first.
+  // For post-capture mode: capture full image and stop preview.
   captureImage(): void {
     if (!this.isBrowser) return;
     if (!this.livePreviewActive && this.cropMode === 'postCapture') return;
@@ -280,7 +289,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
         }
         this.capturedImage = base64;
         if (this.cropMode === 'postCapture') {
-          // Stop the preview once the image is captured
           CameraPreview.stop().then(() => {
             this.livePreviewActive = false;
           });
@@ -292,7 +300,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // When user clicks the overlay button.
   cropOrCapture(): void {
     if (this.cropMode === 'preCapture') {
-      // Capture and crop immediately from live preview
+      // Capture and crop immediately from live preview.
       this.captureImage();
       setTimeout(() => this.processImage(this.capturedImage), 100);
     } else {
@@ -366,7 +374,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
         // Reset crop box for next use.
         this.resetCropBox();
         this.ngZone.run(() => {
-          this.image = croppedDataUrl.split(',')[1]; // remove the data URL prefix
+          this.image = croppedDataUrl.split(',')[1]; // Remove data URL prefix.
           this.currentPage = 'result';
         });
       } else {
@@ -377,12 +385,117 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   }
 
   // --- Drag & Resize Methods ---
+
+  // Start dragging the crop box.
   startDrag(event: MouseEvent | TouchEvent): void {
-    // Implement your dragging logic here.
+    event.preventDefault();
+    // Prevent drag if the target is the resize handle.
+    if ((event.target as HTMLElement).classList.contains('resize-handle')) {
+      return;
+    }
+    this.dragging = true;
+    let clientX: number, clientY: number;
+    if (event instanceof TouchEvent) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    this.dragStartX = clientX;
+    this.dragStartY = clientY;
+    this.initialSquareLeft = this.squarePos.left;
+    this.initialSquareTop = this.squarePos.top;
+    document.addEventListener('mousemove', this.onDrag);
+    document.addEventListener('touchmove', this.onDrag, { passive: false });
+    document.addEventListener('mouseup', this.stopDrag);
+    document.addEventListener('touchend', this.stopDrag);
   }
+
+  // Drag event handler.
+  onDrag = (event: MouseEvent | TouchEvent): void => {
+    if (!this.dragging) return;
+    event.preventDefault();
+    let clientX: number, clientY: number;
+    if (event instanceof TouchEvent) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    const deltaX = clientX - this.dragStartX;
+    const deltaY = clientY - this.dragStartY;
+    this.ngZone.run(() => {
+      this.squarePos = {
+        left: this.initialSquareLeft + deltaX,
+        top: this.initialSquareTop + deltaY,
+      };
+    });
+  };
+
+  // Stop dragging.
+  stopDrag = (): void => {
+    this.dragging = false;
+    document.removeEventListener('mousemove', this.onDrag);
+    document.removeEventListener('touchmove', this.onDrag);
+    document.removeEventListener('mouseup', this.stopDrag);
+    document.removeEventListener('touchend', this.stopDrag);
+  };
+
+  // Start resizing the crop box.
   startResize(event: MouseEvent | TouchEvent): void {
-    // Implement your resizing logic here.
+    event.preventDefault();
+    event.stopPropagation();
+    this.isResizing = true;
+    let clientX: number, clientY: number;
+    if (event instanceof TouchEvent) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    this.initialResizeX = clientX;
+    this.initialResizeY = clientY;
+    this.initialBoxWidth = this.boxWidth;
+    this.initialBoxHeight = this.boxHeight;
+    document.addEventListener('mousemove', this.onResize);
+    document.addEventListener('touchmove', this.onResize, { passive: false });
+    document.addEventListener('mouseup', this.stopResize);
+    document.addEventListener('touchend', this.stopResize);
   }
+
+  // Resize event handler.
+  onResize = (event: MouseEvent | TouchEvent): void => {
+    if (!this.isResizing) return;
+    event.preventDefault();
+    let clientX: number, clientY: number;
+    if (event instanceof TouchEvent) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    const deltaX = clientX - this.initialResizeX;
+    const deltaY = clientY - this.initialResizeY;
+    const newWidth = Math.max(50, this.initialBoxWidth + deltaX);
+    const newHeight = Math.max(50, this.initialBoxHeight + deltaY);
+    this.ngZone.run(() => {
+      this.boxWidth = newWidth;
+      this.boxHeight = newHeight;
+    });
+  };
+
+  // Stop resizing.
+  stopResize = (): void => {
+    this.isResizing = false;
+    document.removeEventListener('mousemove', this.onResize);
+    document.removeEventListener('touchmove', this.onResize);
+    document.removeEventListener('mouseup', this.stopResize);
+    document.removeEventListener('touchend', this.stopResize);
+  };
 
   // --- Resetting ---
   resetCropBox(): void {
@@ -434,10 +547,10 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   goHome(): void {
     this.currentPage = 'home';
-    // Optionally stop the camera preview if needed.
+    // Optionally, stop the camera preview here.
   }
 
   onImageLoad(): void {
-    // Adjust crop box based on the loaded image dimensions if necessary.
+    // Optionally, adjust the crop box after the image loads.
   }
 }
