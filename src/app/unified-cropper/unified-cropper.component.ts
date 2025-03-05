@@ -23,7 +23,7 @@ export interface CropResponse {
   imageName: string;
   imagePath: string;
   imageSourceType: 'camera' | 'gallery';
-  imageType: string; // e.g. ".png" or ".jpg"
+  imageType: string;
   imageBase64: string;
 }
 
@@ -39,34 +39,75 @@ export interface UnifiedCropperOptions {
   template: `
     <!-- Camera / Cropping Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
-      <!-- Show camera preview container if active -->
+      <!-- Show camera preview container if active and source is camera -->
       <div
-        *ngIf="livePreviewActive"
+        *ngIf="livePreviewActive && sourceMode === 'camera'"
         id="cameraPreviewContainer"
         class="container"
       ></div>
 
-      <!-- When an image is available (from gallery or captured) or in preCapture mode,
-           show the cropping overlay -->
+      <!-- Conditionally display cropping UI only if:
+           - In preCaptureCrop mode, OR
+           - In postCaptureCrop mode AND an image has been captured -->
       <ng-container
         *ngIf="
-          capturedImage || cropMode === 'preCaptureCrop';
+          cropMode === 'preCaptureCrop' ||
+            (cropMode === 'postCaptureCrop' && capturedImage);
           else captureButton
         "
       >
-        <!-- Display the captured image if available (for gallery or postCapture) -->
+        <!-- Display the captured image if available -->
         <img
-          *ngIf="
-            capturedImage &&
-            (sourceMode === 'gallery' || cropMode === 'postCaptureCrop')
-          "
+          *ngIf="capturedImage"
           [src]="'data:image/png;base64,' + capturedImage"
           class="gallery-preview"
           alt="Captured Image"
           (load)="onImageLoad()"
         />
-        <!-- Cropping overlay (common to all modes) -->
+        <!-- Overlay: Mask the area outside the crop box -->
         <div class="overlay">
+          <!-- Top Mask -->
+          <div
+            class="mask mask-top"
+            [ngStyle]="{
+              'height.px': squarePos.top,
+              'width.px': screenWidth,
+              'top.px': 0,
+              'left.px': 0
+            }"
+          ></div>
+          <!-- Bottom Mask -->
+          <div
+            class="mask mask-bottom"
+            [ngStyle]="{
+              'height.px': screenHeight - (squarePos.top + boxHeight),
+              'width.px': screenWidth,
+              'top.px': squarePos.top + boxHeight,
+              'left.px': 0
+            }"
+          ></div>
+          <!-- Left Mask -->
+          <div
+            class="mask mask-left"
+            [ngStyle]="{
+              'height.px': boxHeight,
+              'width.px': squarePos.left,
+              'top.px': squarePos.top,
+              'left.px': 0
+            }"
+          ></div>
+          <!-- Right Mask -->
+          <div
+            class="mask mask-right"
+            [ngStyle]="{
+              'height.px': boxHeight,
+              'width.px': screenWidth - (squarePos.left + boxWidth),
+              'top.px': squarePos.top,
+              'left.px': squarePos.left + boxWidth
+            }"
+          ></div>
+
+          <!-- Draggable Crop Box -->
           <div
             #draggableSquare
             class="draggable-square"
@@ -91,10 +132,9 @@ export interface UnifiedCropperOptions {
         </div>
       </ng-container>
 
-      <!-- Capture button template: if no image is available -->
+      <!-- Capture Button Template: Shown when no image is available in postCaptureCrop mode -->
       <ng-template #captureButton>
         <div class="overlay">
-          <!-- In gallery mode, show "Select from Gallery" button -->
           <button
             class="capture-btn"
             *ngIf="sourceMode === 'gallery'; else cameraCapture"
@@ -122,18 +162,7 @@ export interface UnifiedCropperOptions {
         position: relative;
         height: 100vh;
         width: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-      }
-      button {
-        padding: 10px 20px;
-        margin: 5px;
-        font-size: 18px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
+        overflow: hidden;
       }
       .container {
         position: absolute;
@@ -143,9 +172,13 @@ export interface UnifiedCropperOptions {
         height: 100%;
       }
       .gallery-preview {
+        position: absolute;
+        top: 0;
+        left: 0;
         width: 100%;
         height: 100%;
-        object-fit: contain;
+        object-fit: cover;
+        z-index: 900;
       }
       .overlay {
         position: absolute;
@@ -153,7 +186,34 @@ export interface UnifiedCropperOptions {
         left: 0;
         width: 100%;
         height: 100%;
+        z-index: 1000;
+        pointer-events: none;
+      }
+      .mask {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.5);
         pointer-events: auto;
+        z-index: 950;
+      }
+      .draggable-square {
+        position: absolute;
+        border: 2px dashed #fff;
+        pointer-events: auto;
+        z-index: 1001;
+      }
+      .resize-handle {
+        position: absolute;
+        width: 20px;
+        height: 5px;
+        background: rgba(197, 35, 35, 0.7);
+        border: none;
+        border-radius: 10px;
+        bottom: 0;
+        right: 50%;
+        transform: translateX(50%);
+        cursor: se-resize;
+        pointer-events: auto;
+        z-index: 1002;
       }
       .capture-btn {
         position: absolute;
@@ -167,24 +227,8 @@ export interface UnifiedCropperOptions {
         cursor: pointer;
         color: #fff;
         background: red;
-      }
-      .draggable-square {
-        position: absolute;
-        border: 2px dashed #fff;
-        touch-action: none;
-      }
-      .resize-handle {
-        position: absolute;
-        width: 20px;
-        height: 5px;
-        background: rgba(197, 35, 35, 0.7);
-        border: none;
-        border-radius: 10px;
-        bottom: 0;
-        right: 50%;
-        transform: translateX(50%);
-        cursor: se-resize;
-        touch-action: none;
+        z-index: 1050;
+        pointer-events: auto;
       }
     `,
   ],
@@ -195,14 +239,13 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   @ViewChild('galleryImg', { static: false })
   galleryImgRef!: ElementRef<HTMLImageElement>;
 
-  // Output the response when cropping is complete.
   @Output() cropCompleted: EventEmitter<CropResponse> =
     new EventEmitter<CropResponse>();
 
   // Flag to indicate browser (avoids SSR issues)
   isBrowser: boolean = false;
 
-  // We use only the "camera" page.
+  // Use only the "camera" page.
   currentPage: 'camera' = 'camera';
 
   // Crop mode: 'preCaptureCrop' or 'postCaptureCrop'
@@ -223,6 +266,10 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   boxHeight: number = 200;
   squarePos: Position = { left: 0, top: 0 };
 
+  // Screen dimensions.
+  screenWidth: number = 0;
+  screenHeight: number = 0;
+
   // Drag state variables.
   dragging: boolean = false;
   dragStartX: number = 0;
@@ -237,7 +284,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   initialBoxWidth: number = 200;
   initialBoxHeight: number = 200;
 
-  // Optional aspect ratio settings.
+  // Optional aspect ratio.
   aspectRatio?: string;
   aspectX?: number;
   aspectY?: number;
@@ -251,9 +298,11 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   ngOnInit(): void {
     if (this.isBrowser) {
+      this.screenWidth = window.innerWidth;
+      this.screenHeight = window.innerHeight;
       this.squarePos = {
-        left: window.innerWidth / 2 - 100,
-        top: window.innerHeight / 2 - 100,
+        left: this.screenWidth / 2 - 100,
+        top: this.screenHeight / 2 - 100,
       };
     } else {
       this.squarePos = { left: 0, top: 0 };
@@ -264,9 +313,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   /**
    * Public API to start the cropper.
-   * Example usage:
+   * Examples:
    *   this.unified.start({ mode: 'preCaptureCrop', aspectRatio: '1:1' });
-   *   this.unified.start({ mode: 'postCaptureCrop' });
    *   this.unified.start({ mode: 'gallery', aspectRatio: '16:9' });
    */
   public start(options: UnifiedCropperOptions): void {
@@ -284,11 +332,11 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // --- Mode selection ---
   setCropMode(mode: 'preCaptureCrop' | 'postCaptureCrop' | 'gallery'): void {
     if (mode === 'gallery') {
-      // For gallery mode, use postCaptureCrop behavior with source = 'gallery'.
+      // For gallery, set to postCaptureCrop with source = 'gallery'
       this.cropMode = 'postCaptureCrop';
       this.sourceMode = 'gallery';
       this.currentPage = 'camera';
-      // Do not automatically open the gallery picker; wait for user activation.
+      // Do not auto-launch gallery picker—wait for user click.
     } else {
       this.cropMode = mode;
       this.sourceMode = 'camera';
@@ -326,8 +374,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     this.livePreviewActive = true;
     CameraPreview.start({
       position: 'rear',
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: this.screenWidth,
+      height: this.screenHeight,
       parent: 'cameraPreviewContainer',
       className: 'cameraPreview',
       toBack: true,
@@ -402,11 +450,9 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
         cropWidth = cropRect.width * (naturalWidth / displayedWidth);
         cropHeight = cropRect.height * (naturalHeight / displayedHeight);
       } else {
-        // For camera mode, assume the image fills the window.
-        const previewWidth = window.innerWidth;
-        const previewHeight = window.innerHeight;
-        const scaleX = img.width / previewWidth;
-        const scaleY = img.height / previewHeight;
+        // For camera mode, assume the image fills the screen.
+        const scaleX = img.width / this.screenWidth;
+        const scaleY = img.height / this.screenHeight;
         const rect = this.draggableSquare.nativeElement.getBoundingClientRect();
         cropX = rect.left * scaleX;
         cropY = rect.top * scaleY;
@@ -438,10 +484,10 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
           });
         }
         const base64Result = croppedDataUrl.split(',')[1];
-        // Create a response object.
+        // Build the response object.
         const responseObj: CropResponse = {
           imageName: `IMG_${new Date().getTime()}.png`,
-          imagePath: '', // You can assign a path if saving the image to a file system.
+          imagePath: '', // Add file path if needed.
           imageSourceType: this.sourceMode,
           imageType: '.png',
           imageBase64: base64Result,
@@ -590,8 +636,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       this.boxWidth = 200;
       this.boxHeight = 200;
       this.squarePos = {
-        left: window.innerWidth / 2 - 100,
-        top: window.innerHeight / 2 - 100,
+        left: this.screenWidth / 2 - 100,
+        top: this.screenHeight / 2 - 100,
       };
     }
   }
