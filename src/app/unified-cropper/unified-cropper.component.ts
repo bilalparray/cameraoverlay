@@ -75,15 +75,6 @@ interface Position {
         </div>
       </ng-template>
     </div>
-
-    <!-- Result Screen -->
-    <div *ngIf="currentPage === 'result'" class="page">
-      <h3>Cropped Image:</h3>
-      <div class="image-preview-container">
-        <img [src]="'data:image/png;base64,' + image" alt="Cropped Image" />
-      </div>
-      <button (click)="restart()">Restart</button>
-    </div>
   `,
   styles: [
     `
@@ -115,15 +106,6 @@ interface Position {
         left: 0;
         width: 100%;
         height: 100%;
-      }
-      .image-preview-container {
-        width: 100%;
-        max-width: 300px;
-        height: auto;
-        overflow: hidden;
-        display: flex;
-        justify-content: center;
-        align-items: center;
       }
       .gallery-preview {
         width: 100%;
@@ -181,8 +163,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // Flag to indicate browser (avoids SSR issues)
   isBrowser: boolean = false;
 
-  // Pages: 'camera', 'result'
-  currentPage: 'camera' | 'result' = 'camera';
+  // Page: now only 'camera'
+  currentPage: 'camera' = 'camera';
 
   // Cropping mode: 'preCapture' or 'postCapture'
   cropMode: 'preCapture' | 'postCapture' = 'postCapture';
@@ -370,10 +352,15 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
         const croppedDataUrl = canvas.toDataURL('image/png');
         // Reset crop box for next use.
         this.resetCropBox();
-        this.ngZone.run(() => {
-          this.image = croppedDataUrl.split(',')[1]; // Remove data URL prefix.
-          this.currentPage = 'result';
-        });
+        // Stop the camera preview if still active
+        if (this.livePreviewActive) {
+          CameraPreview.stop().then(() => {
+            this.livePreviewActive = false;
+          });
+        }
+        // Log the base64 string (without prefix) to the console.
+        const base64Result = croppedDataUrl.split(',')[1];
+        console.log('Cropped Base64:', base64Result);
       } else {
         console.error('Canvas context not available');
       }
@@ -516,30 +503,14 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       };
     }
   }
-
-  // --- Navigation Helper ---
-  restart(): void {
-    this.image = '';
-    this.capturedImage = '';
-    this.currentPage = 'camera';
-    if (this.sourceMode === 'camera' && this.isBrowser) {
-      this.livePreviewActive = true;
-      CameraPreview.start({
-        position: 'rear',
-        width: window.innerWidth,
-        height: window.innerHeight,
-        parent: 'cameraPreviewContainer',
-        className: 'cameraPreview',
-        toBack: true,
-      })
-        .then(() => console.log('Camera preview restarted'))
-        .catch((error) =>
-          console.error('Error restarting camera preview:', error)
-        );
-    }
-  }
-
   onImageLoad(): void {
-    // Optionally adjust the crop box after the image loads.
+    // if (this.isBrowser) {
+    //   this.squarePos = {
+    //     left: window.innerWidth / 2 - 100,
+    //     top: window.innerHeight / 2 - 100,
+    //   };
+    // } else {
+    //   this.squarePos = { left: 0, top: 0 }
+    // }
   }
 }

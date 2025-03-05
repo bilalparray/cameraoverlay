@@ -16,6 +16,6 @@ export class AppComponent {
     setTimeout(() => this.startCropper(), 1000);
   }
   startCropper(): void {
-    this.unified.start({ mode: 'postCapture' });
+    this.unified.start({ mode: 'preCapture' });
   }
 }
