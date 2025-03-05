@@ -10,6 +10,7 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { CameraPreview } from '@capacitor-community/camera-preview';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 
 interface Position {
   left: number;
@@ -23,26 +24,30 @@ interface Position {
   template: `
     <!-- Camera / Cropping Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
-      <!-- Always show the camera preview container if livePreviewActive is true -->
+      <!-- Show camera preview container if active -->
       <div
         *ngIf="livePreviewActive"
         id="cameraPreviewContainer"
         class="container"
       ></div>
 
-      <!-- Show captured image (for post-capture) or overlay cropping (for pre-capture) -->
+      <!-- When an image is available (from gallery or captured) or in preCapture mode,
+           show the cropping overlay -->
       <ng-container
         *ngIf="capturedImage || cropMode === 'preCapture'; else captureButton"
       >
-        <!-- Display the captured image in post-capture mode -->
+        <!-- Display the captured image if available in gallery mode or in postCapture mode -->
         <img
-          *ngIf="capturedImage && cropMode === 'postCapture'"
+          *ngIf="
+            capturedImage &&
+            (sourceMode === 'gallery' || cropMode === 'postCapture')
+          "
           [src]="'data:image/png;base64,' + capturedImage"
           class="gallery-preview"
           alt="Captured Image"
           (load)="onImageLoad()"
         />
-        <!-- Cropping overlay (shared between modes) -->
+        <!-- Cropping overlay (common to all modes) -->
         <div class="overlay">
           <div
             #draggableSquare
@@ -68,10 +73,22 @@ interface Position {
         </div>
       </ng-container>
 
-      <!-- Template for post-capture mode: show capture button if no image yet -->
+      <!-- Capture button template: if no image is available -->
       <ng-template #captureButton>
         <div class="overlay">
-          <button class="capture-btn" (click)="captureImage()">Capture</button>
+          <!-- If in gallery mode, show a "Select from Gallery" button -->
+          <button
+            class="capture-btn"
+            *ngIf="sourceMode === 'gallery'; else cameraCapture"
+            (click)="pickImageFromGallery()"
+          >
+            Select from Gallery
+          </button>
+          <ng-template #cameraCapture>
+            <button class="capture-btn" (click)="captureImage()">
+              Capture
+            </button>
+          </ng-template>
         </div>
       </ng-template>
     </div>
@@ -163,18 +180,18 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // Flag to indicate browser (avoids SSR issues)
   isBrowser: boolean = false;
 
-  // Page: now only 'camera'
+  // We'll use only the "camera" page in this version.
   currentPage: 'camera' = 'camera';
 
   // Cropping mode: 'preCapture' or 'postCapture'
+  // (Gallery mode sets sourceMode = 'gallery' and works like postCapture)
   cropMode: 'preCapture' | 'postCapture' = 'postCapture';
 
   // Source mode: 'camera' or 'gallery'
   sourceMode: 'camera' | 'gallery' = 'camera';
 
-  // Base64 image strings (captured and cropped)
+  // Base64 image string (captured or selected)
   capturedImage: string = '';
-  image: string = '';
 
   // Camera preview active flag
   livePreviewActive: boolean = false;
@@ -220,20 +237,51 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   /**
    * Public API to start the unified cropper.
-   * Usage from a parent component:
+   * Example usage:
    *   this.unified.start({ mode: 'preCapture' });
+   *   this.unified.start({ mode: 'postCapture' });
+   *   this.unified.start({ mode: 'gallery' });
    */
-  public start(options: { mode: 'preCapture' | 'postCapture' }): void {
+  public start(options: {
+    mode: 'preCapture' | 'postCapture' | 'gallery';
+  }): void {
     this.setCropMode(options.mode);
   }
 
   // --- Mode selection ---
-  setCropMode(mode: 'preCapture' | 'postCapture'): void {
-    this.cropMode = mode;
-    // Directly start in camera mode.
-    this.currentPage = 'camera';
-    if (this.isBrowser) {
-      this.startCameraPreview();
+  setCropMode(mode: 'preCapture' | 'postCapture' | 'gallery'): void {
+    if (mode === 'gallery') {
+      // For gallery mode, set to postCapture behavior but require user activation.
+      this.cropMode = 'postCapture';
+      this.sourceMode = 'gallery';
+      this.currentPage = 'camera';
+      // Do not automatically open the gallery picker—wait for the user to click the button.
+    } else {
+      this.cropMode = mode;
+      this.sourceMode = 'camera';
+      this.currentPage = 'camera';
+      if (this.isBrowser) {
+        this.startCameraPreview();
+      }
+    }
+  }
+
+  // --- Gallery selection ---
+  async pickImageFromGallery(): Promise<void> {
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 85,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Photos,
+      });
+      this.capturedImage = photo.base64String || '';
+      if (this.livePreviewActive) {
+        await CameraPreview.stop();
+        this.livePreviewActive = false;
+      }
+      console.log('Gallery image selected');
+    } catch (error) {
+      console.error('Gallery selection error:', error);
     }
   }
 
@@ -255,7 +303,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       .catch((error) => console.error('Error starting camera preview:', error));
   }
 
-  // For post-capture mode: capture full image and stop preview.
+  // For postCapture mode: capture image from the live preview.
   captureImage(): void {
     if (!this.isBrowser) return;
     if (!this.livePreviewActive && this.cropMode === 'postCapture') return;
@@ -276,14 +324,14 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       .catch((error) => console.error('Capture error:', error));
   }
 
-  // When user clicks the overlay button.
+  // When the overlay button is clicked.
   cropOrCapture(): void {
     if (this.cropMode === 'preCapture') {
-      // Capture and crop immediately from live preview.
+      // For preCapture, capture and then crop.
       this.captureImage();
       setTimeout(() => this.processImage(this.capturedImage), 100);
     } else {
-      // For post-capture, process the already-captured image.
+      // For postCapture or gallery, process the selected/captured image.
       this.processImage(this.capturedImage);
     }
   }
@@ -350,15 +398,12 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
           cropHeight
         );
         const croppedDataUrl = canvas.toDataURL('image/png');
-        // Reset crop box for next use.
         this.resetCropBox();
-        // Stop the camera preview if still active
         if (this.livePreviewActive) {
           CameraPreview.stop().then(() => {
             this.livePreviewActive = false;
           });
         }
-        // Log the base64 string (without prefix) to the console.
         const base64Result = croppedDataUrl.split(',')[1];
         console.log('Cropped Base64:', base64Result);
       } else {
@@ -369,11 +414,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   }
 
   // --- Drag & Resize Methods ---
-
-  // Start dragging the crop box.
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
-    // Prevent drag if the target is the resize handle.
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
       return;
     }
@@ -396,7 +438,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     document.addEventListener('touchend', this.stopDrag);
   }
 
-  // Drag event handler.
   onDrag = (event: MouseEvent | TouchEvent): void => {
     if (!this.dragging) return;
     event.preventDefault();
@@ -418,7 +459,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     });
   };
 
-  // Stop dragging.
   stopDrag = (): void => {
     this.dragging = false;
     document.removeEventListener('mousemove', this.onDrag);
@@ -427,7 +467,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     document.removeEventListener('touchend', this.stopDrag);
   };
 
-  // Start resizing the crop box.
   startResize(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -450,7 +489,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     document.addEventListener('touchend', this.stopResize);
   }
 
-  // Resize event handler.
   onResize = (event: MouseEvent | TouchEvent): void => {
     if (!this.isResizing) return;
     event.preventDefault();
@@ -472,7 +510,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     });
   };
 
-  // Stop resizing.
   stopResize = (): void => {
     this.isResizing = false;
     document.removeEventListener('mousemove', this.onResize);
@@ -503,14 +540,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       };
     }
   }
-  onImageLoad(): void {
-    // if (this.isBrowser) {
-    //   this.squarePos = {
-    //     left: window.innerWidth / 2 - 100,
-    //     top: window.innerHeight / 2 - 100,
-    //   };
-    // } else {
-    //   this.squarePos = { left: 0, top: 0 }
-    // }
-  }
+
+  onImageLoad(): void {}
 }
