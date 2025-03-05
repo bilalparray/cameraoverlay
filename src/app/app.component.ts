@@ -1,11 +1,11 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Cropper } from './cropper/cropper.component';
 import { RouterModule } from '@angular/router';
+import { UnifiedCropperComponent } from './unified-cropper/unified-cropper.component';
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, UnifiedCropperComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
