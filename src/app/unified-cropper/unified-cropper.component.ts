@@ -21,13 +21,6 @@ interface Position {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <!-- Home Screen: Optional if you want a self-contained home view -->
-    <div *ngIf="currentPage === 'home'" class="page">
-      <h1>Welcome to Unified Cropper</h1>
-      <button (click)="setCropMode('preCapture')">Pre-Capture Crop</button>
-      <button (click)="setCropMode('postCapture')">Post-Capture Crop</button>
-    </div>
-
     <!-- Camera / Cropping Screen -->
     <div *ngIf="currentPage === 'camera'" class="page">
       <!-- Always show the camera preview container if livePreviewActive is true -->
@@ -90,7 +83,6 @@ interface Position {
         <img [src]="'data:image/png;base64,' + image" alt="Cropped Image" />
       </div>
       <button (click)="restart()">Restart</button>
-      <button (click)="goHome()">Home</button>
     </div>
   `,
   styles: [
@@ -108,10 +100,6 @@ interface Position {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-      }
-      h1 {
-        text-align: center;
-        margin-bottom: 20px;
       }
       button {
         padding: 10px 20px;
@@ -193,8 +181,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // Flag to indicate browser (avoids SSR issues)
   isBrowser: boolean = false;
 
-  // Pages: 'home', 'camera', 'result'
-  currentPage: 'home' | 'camera' | 'result' = 'home';
+  // Pages: 'camera', 'result'
+  currentPage: 'camera' | 'result' = 'camera';
 
   // Cropping mode: 'preCapture' or 'postCapture'
   cropMode: 'preCapture' | 'postCapture' = 'postCapture';
@@ -250,8 +238,8 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   /**
    * Public API to start the unified cropper.
-   * You can call this from the parent component as:
-   * this.unified.start({ mode: 'preCapture' });
+   * Usage from a parent component:
+   *   this.unified.start({ mode: 'preCapture' });
    */
   public start(options: { mode: 'preCapture' | 'postCapture' }): void {
     this.setCropMode(options.mode);
@@ -260,9 +248,9 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // --- Mode selection ---
   setCropMode(mode: 'preCapture' | 'postCapture'): void {
     this.cropMode = mode;
+    // Directly start in camera mode.
     this.currentPage = 'camera';
     if (this.isBrowser) {
-      // Always start the camera preview regardless of mode.
       this.startCameraPreview();
     }
   }
@@ -398,6 +386,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // Start dragging the crop box.
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
+    // Prevent drag if the target is the resize handle.
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
       return;
     }
@@ -528,7 +517,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
-  // --- Navigation Helpers ---
+  // --- Navigation Helper ---
   restart(): void {
     this.image = '';
     this.capturedImage = '';
@@ -539,10 +528,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
         position: 'rear',
         width: window.innerWidth,
         height: window.innerHeight,
-        parent:
-          this.cropMode === 'preCapture'
-            ? 'cameraPreviewContainer'
-            : 'cameraPreview',
+        parent: 'cameraPreviewContainer',
         className: 'cameraPreview',
         toBack: true,
       })
@@ -553,12 +539,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
     }
   }
 
-  goHome(): void {
-    this.currentPage = 'home';
-    // Optionally, stop the camera preview here.
-  }
-
   onImageLoad(): void {
-    // Optionally, adjust the crop box after the image loads.
+    // Optionally adjust the crop box after the image loads.
   }
 }
