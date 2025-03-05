@@ -8,6 +8,8 @@ import {
   NgZone,
   Inject,
   PLATFORM_ID,
+  EventEmitter,
+  Output,
 } from '@angular/core';
 import { CameraPreview } from '@capacitor-community/camera-preview';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -15,6 +17,19 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 interface Position {
   left: number;
   top: number;
+}
+
+export interface CropResponse {
+  imageName: string;
+  imagePath: string;
+  imageSourceType: 'camera' | 'gallery';
+  imageType: string; // e.g. ".png" or ".jpg"
+  imageBase64: string;
+}
+
+export interface UnifiedCropperOptions {
+  mode: 'preCaptureCrop' | 'postCaptureCrop' | 'gallery';
+  aspectRatio?: string; // e.g., "1:1", "16:9"
 }
 
 @Component({
@@ -34,13 +49,16 @@ interface Position {
       <!-- When an image is available (from gallery or captured) or in preCapture mode,
            show the cropping overlay -->
       <ng-container
-        *ngIf="capturedImage || cropMode === 'preCapture'; else captureButton"
+        *ngIf="
+          capturedImage || cropMode === 'preCaptureCrop';
+          else captureButton
+        "
       >
-        <!-- Display the captured image if available in gallery mode or in postCapture mode -->
+        <!-- Display the captured image if available (for gallery or postCapture) -->
         <img
           *ngIf="
             capturedImage &&
-            (sourceMode === 'gallery' || cropMode === 'postCapture')
+            (sourceMode === 'gallery' || cropMode === 'postCaptureCrop')
           "
           [src]="'data:image/png;base64,' + capturedImage"
           class="gallery-preview"
@@ -68,7 +86,7 @@ interface Position {
             ></div>
           </div>
           <button class="capture-btn" (click)="cropOrCapture()">
-            {{ cropMode === 'preCapture' ? 'Capture & Crop' : 'Crop' }}
+            {{ cropMode === 'preCaptureCrop' ? 'Capture & Crop' : 'Crop' }}
           </button>
         </div>
       </ng-container>
@@ -76,7 +94,7 @@ interface Position {
       <!-- Capture button template: if no image is available -->
       <ng-template #captureButton>
         <div class="overlay">
-          <!-- If in gallery mode, show a "Select from Gallery" button -->
+          <!-- In gallery mode, show "Select from Gallery" button -->
           <button
             class="capture-btn"
             *ngIf="sourceMode === 'gallery'; else cameraCapture"
@@ -177,43 +195,52 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   @ViewChild('galleryImg', { static: false })
   galleryImgRef!: ElementRef<HTMLImageElement>;
 
+  // Output the response when cropping is complete.
+  @Output() cropCompleted: EventEmitter<CropResponse> =
+    new EventEmitter<CropResponse>();
+
   // Flag to indicate browser (avoids SSR issues)
   isBrowser: boolean = false;
 
-  // We'll use only the "camera" page in this version.
+  // We use only the "camera" page.
   currentPage: 'camera' = 'camera';
 
-  // Cropping mode: 'preCapture' or 'postCapture'
-  // (Gallery mode sets sourceMode = 'gallery' and works like postCapture)
-  cropMode: 'preCapture' | 'postCapture' = 'postCapture';
+  // Crop mode: 'preCaptureCrop' or 'postCaptureCrop'
+  // (Gallery mode sets sourceMode to 'gallery' and works like postCaptureCrop.)
+  cropMode: 'preCaptureCrop' | 'postCaptureCrop' = 'postCaptureCrop';
 
   // Source mode: 'camera' or 'gallery'
   sourceMode: 'camera' | 'gallery' = 'camera';
 
-  // Base64 image string (captured or selected)
+  // Captured or selected image as base64.
   capturedImage: string = '';
 
-  // Camera preview active flag
+  // Whether the camera preview is active.
   livePreviewActive: boolean = false;
 
-  // Crop box dimensions and position
+  // Crop box dimensions and position.
   boxWidth: number = 200;
   boxHeight: number = 200;
   squarePos: Position = { left: 0, top: 0 };
 
-  // Drag state variables
+  // Drag state variables.
   dragging: boolean = false;
   dragStartX: number = 0;
   dragStartY: number = 0;
   initialSquareLeft: number = 0;
   initialSquareTop: number = 0;
 
-  // Resize state variables
+  // Resize state variables.
   isResizing: boolean = false;
   initialResizeX: number = 0;
   initialResizeY: number = 0;
   initialBoxWidth: number = 200;
   initialBoxHeight: number = 200;
+
+  // Optional aspect ratio settings.
+  aspectRatio?: string;
+  aspectX?: number;
+  aspectY?: number;
 
   constructor(
     private ngZone: NgZone,
@@ -236,26 +263,32 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   ngAfterViewInit(): void {}
 
   /**
-   * Public API to start the unified cropper.
+   * Public API to start the cropper.
    * Example usage:
-   *   this.unified.start({ mode: 'preCapture' });
-   *   this.unified.start({ mode: 'postCapture' });
-   *   this.unified.start({ mode: 'gallery' });
+   *   this.unified.start({ mode: 'preCaptureCrop', aspectRatio: '1:1' });
+   *   this.unified.start({ mode: 'postCaptureCrop' });
+   *   this.unified.start({ mode: 'gallery', aspectRatio: '16:9' });
    */
-  public start(options: {
-    mode: 'preCapture' | 'postCapture' | 'gallery';
-  }): void {
+  public start(options: UnifiedCropperOptions): void {
+    if (options.aspectRatio) {
+      this.aspectRatio = options.aspectRatio;
+      const parts = options.aspectRatio.split(':');
+      if (parts.length === 2) {
+        this.aspectX = parseFloat(parts[0]);
+        this.aspectY = parseFloat(parts[1]);
+      }
+    }
     this.setCropMode(options.mode);
   }
 
   // --- Mode selection ---
-  setCropMode(mode: 'preCapture' | 'postCapture' | 'gallery'): void {
+  setCropMode(mode: 'preCaptureCrop' | 'postCaptureCrop' | 'gallery'): void {
     if (mode === 'gallery') {
-      // For gallery mode, set to postCapture behavior but require user activation.
-      this.cropMode = 'postCapture';
+      // For gallery mode, use postCaptureCrop behavior with source = 'gallery'.
+      this.cropMode = 'postCaptureCrop';
       this.sourceMode = 'gallery';
       this.currentPage = 'camera';
-      // Do not automatically open the gallery picker—wait for the user to click the button.
+      // Do not automatically open the gallery picker; wait for user activation.
     } else {
       this.cropMode = mode;
       this.sourceMode = 'camera';
@@ -303,10 +336,10 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       .catch((error) => console.error('Error starting camera preview:', error));
   }
 
-  // For postCapture mode: capture image from the live preview.
+  // For postCaptureCrop mode: capture image from the live preview.
   captureImage(): void {
     if (!this.isBrowser) return;
-    if (!this.livePreviewActive && this.cropMode === 'postCapture') return;
+    if (!this.livePreviewActive && this.cropMode === 'postCaptureCrop') return;
     CameraPreview.capture({ quality: 85 })
       .then((result: any) => {
         const base64 = result.value;
@@ -315,7 +348,7 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
           return;
         }
         this.capturedImage = base64;
-        if (this.cropMode === 'postCapture') {
+        if (this.cropMode === 'postCaptureCrop') {
           CameraPreview.stop().then(() => {
             this.livePreviewActive = false;
           });
@@ -326,12 +359,12 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   // When the overlay button is clicked.
   cropOrCapture(): void {
-    if (this.cropMode === 'preCapture') {
-      // For preCapture, capture and then crop.
+    if (this.cropMode === 'preCaptureCrop') {
+      // For preCaptureCrop, capture then crop.
       this.captureImage();
       setTimeout(() => this.processImage(this.capturedImage), 100);
     } else {
-      // For postCapture or gallery, process the selected/captured image.
+      // For postCaptureCrop or gallery, process the already captured/selected image.
       this.processImage(this.capturedImage);
     }
   }
@@ -405,7 +438,16 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
           });
         }
         const base64Result = croppedDataUrl.split(',')[1];
-        console.log('Cropped Base64:', base64Result);
+        // Create a response object.
+        const responseObj: CropResponse = {
+          imageName: `IMG_${new Date().getTime()}.png`,
+          imagePath: '', // You can assign a path if saving the image to a file system.
+          imageSourceType: this.sourceMode,
+          imageType: '.png',
+          imageBase64: base64Result,
+        };
+        console.log('Crop Completed:', responseObj);
+        this.cropCompleted.emit(responseObj);
       } else {
         console.error('Canvas context not available');
       }
@@ -501,13 +543,26 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
       clientY = event.clientY;
     }
     const deltaX = clientX - this.initialResizeX;
-    const deltaY = clientY - this.initialResizeY;
-    const newWidth = Math.max(50, this.initialBoxWidth + deltaX);
-    const newHeight = Math.max(50, this.initialBoxHeight + deltaY);
-    this.ngZone.run(() => {
-      this.boxWidth = newWidth;
-      this.boxHeight = newHeight;
-    });
+    if (this.aspectRatio && this.aspectX && this.aspectY) {
+      let newWidth = Math.max(50, this.initialBoxWidth + deltaX);
+      let newHeight = newWidth * (this.aspectY / this.aspectX);
+      if (newHeight < 50) {
+        newHeight = 50;
+        newWidth = newHeight * (this.aspectX / this.aspectY);
+      }
+      this.ngZone.run(() => {
+        this.boxWidth = newWidth;
+        this.boxHeight = newHeight;
+      });
+    } else {
+      const deltaY = clientY - this.initialResizeY;
+      const newWidth = Math.max(50, this.initialBoxWidth + deltaX);
+      const newHeight = Math.max(50, this.initialBoxHeight + deltaY);
+      this.ngZone.run(() => {
+        this.boxWidth = newWidth;
+        this.boxHeight = newHeight;
+      });
+    }
   };
 
   stopResize = (): void => {
