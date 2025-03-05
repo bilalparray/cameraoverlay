@@ -21,7 +21,7 @@ interface Position {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <!-- Home Screen: User selects the cropping mode -->
+    <!-- Home Screen: Optional if you want a self-contained home view -->
     <div *ngIf="currentPage === 'home'" class="page">
       <h1>Welcome to Unified Cropper</h1>
       <button (click)="setCropMode('preCapture')">Pre-Capture Crop</button>
@@ -248,12 +248,21 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
 
   ngAfterViewInit(): void {}
 
+  /**
+   * Public API to start the unified cropper.
+   * You can call this from the parent component as:
+   * this.unified.start({ mode: 'preCapture' });
+   */
+  public start(options: { mode: 'preCapture' | 'postCapture' }): void {
+    this.setCropMode(options.mode);
+  }
+
   // --- Mode selection ---
   setCropMode(mode: 'preCapture' | 'postCapture'): void {
     this.cropMode = mode;
     this.currentPage = 'camera';
     if (this.isBrowser) {
-      // Start the camera preview regardless of mode.
+      // Always start the camera preview regardless of mode.
       this.startCameraPreview();
     }
   }
@@ -389,7 +398,6 @@ export class UnifiedCropperComponent implements OnInit, AfterViewInit {
   // Start dragging the crop box.
   startDrag(event: MouseEvent | TouchEvent): void {
     event.preventDefault();
-    // Prevent drag if the target is the resize handle.
     if ((event.target as HTMLElement).classList.contains('resize-handle')) {
       return;
     }
